@@ -3,7 +3,9 @@
 
 # Agent Warden
 
-  **Manage and synchronize agentic AI tool configurations across multiple projects**
+  **Centralized Rules & Commands Manager for AI Coding Assistants**
+
+  Sync Cursor Rules, Augment Rules, Claude Rules & Custom Commands Across All Your Projects
 
   [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
   [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -12,9 +14,74 @@
 
 ---
 
-Agent Warden is a comprehensive Python tool that manages MDC (Markdown Documentation Convention) rules and custom commands across multiple projects and agentic AI development tools. Centrally manage and distribute both rules and commands to different projects with support for symlinks, file copies, and system-wide configurations.
+**Stop copying `.cursor/rules`, `.augment/rules`, and `.claude/rules` between projects!**
 
-Perfect for teams using multiple AI coding assistants like Cursor, Claude, Augment, Windsurf, and Codex.
+Agent Warden is a powerful command-line tool that manages and synchronizes AI coding assistant rules and custom commands across multiple projects. Whether you're using Cursor, Augment, Claude Code, Windsurf, or Codex, Agent Warden keeps your AI assistant configurations consistent and up-to-date.
+
+**Perfect for:**
+- Teams using multiple AI coding assistants (Cursor + Augment + Claude)
+- Developers managing rules across many projects
+- Keeping AI assistant configurations synchronized
+- Sharing custom rules and commands with your team
+- Enterprise teams standardizing AI coding practices
+
+**Key Features:**
+- Centralized management of `.cursor/rules`, `.augment/rules`, `.claude/rules`
+- Sync rules and commands across unlimited projects
+- Support for Cursor, Augment, Claude Code, Windsurf, and Codex
+- GitHub package system for sharing team rules
+- Version control and conflict detection
+- Symlinks or copies - your choice
+
+## Why Agent Warden?
+
+**The Problem:** You're using Cursor, Augment, or Claude Code across multiple projects. Each project needs the same coding rules, commit standards, and custom commands. You end up:
+- Manually copying `.cursor/rules` files between projects
+- Updating rules in 10+ projects when standards change
+- Forgetting which projects have which rules
+- Dealing with inconsistent AI assistant behavior across projects
+
+**The Solution:** Agent Warden centralizes your AI coding assistant rules and commands. Update once, sync everywhere.
+
+```bash
+# Install rules to all your projects at once
+warden install ~/project1 --rules coding-standards git-commit
+warden install ~/project2 --rules coding-standards git-commit
+warden install ~/project3 --rules coding-standards git-commit
+
+# Update the rule once, sync to all projects
+warden project update --all
+```
+
+## Quick Start
+
+```bash
+# Install Agent Warden
+pip install -e .
+
+# Install Cursor rules to a project
+warden install ~/my-project --target cursor --rules coding-no-emoji
+
+# Add Augment rules to the same project
+warden install ~/my-project --target augment --rules coding-no-emoji
+
+# List all managed projects
+warden project list
+
+# Update all projects when rules change
+warden status  # Check what needs updating
+warden project update my-project --all
+```
+
+## Supported AI Coding Assistants
+
+| Assistant | Rules Support | Commands Support | Config Path |
+|-----------|--------------|------------------|-------------|
+| **Cursor** | ✅ `.cursor/rules/` | ❌ | Project-level |
+| **Augment** | ✅ `.augment/rules/` | ✅ `.augment/commands/` | Project-level |
+| **Claude Code** | ✅ `.claude/rules/` | ✅ `.claude/commands/` | Project + Global |
+| **Windsurf** | ✅ `.windsurf/rules/` | ❌ | Project + Global |
+| **Codex** | ✅ `.codex/rules/` | ✅ `.codex/commands/` | Project + Global |
 
 ## Important: Meta-Rules vs Project Rules
 
@@ -24,6 +91,72 @@ Perfect for teams using multiple AI coding assistants like Cursor, Claude, Augme
 
 1. **Built-in Rules** (in `rules/` directory): General-purpose rules like `coding-standards.mdc` that can be used across projects
 2. **Package Rules** (from GitHub): Project-specific or framework-specific rules from GitHub packages (e.g., TypeScript rules, Python rules, security rules, etc.)
+
+## Creating Custom Rules with AI Agents
+
+**Use your AI coding assistant to create custom rules!** The `mdc.mdc` meta-rule teaches AI agents how to write proper MDC rule files.
+
+### Method 1: Ask Your AI Assistant Directly
+
+If you have `mdc.mdc` installed in your project (or in your AI assistant's global config), simply ask:
+
+```
+"Using mdc.mdc, create a rule called 'api-design.mdc' that enforces:
+- RESTful naming conventions
+- Proper HTTP status codes
+- Consistent error response format
+- API versioning in URLs"
+```
+
+Your AI assistant will generate a properly formatted MDC rule file that you can save to `rules/api-design.mdc`.
+
+### Method 2: Use Agent Warden's Built-in mdc.mdc
+
+```bash
+# Install mdc.mdc to your AI assistant's global config
+warden global-install cursor  # or augment, claude, etc.
+
+# Now ask your AI assistant to create rules using the MDC format
+# Example prompts:
+# - "Create an MDC rule for TypeScript naming conventions"
+# - "Write an MDC rule enforcing security best practices"
+# - "Generate an MDC rule for React component structure"
+```
+
+### Method 3: Create Rules Manually
+
+1. Look at existing rules in `rules/` for examples
+2. Follow the MDC format (frontmatter + markdown content)
+3. Save to `rules/your-rule-name.mdc`
+4. Install to projects: `warden install ~/project --rules your-rule-name`
+
+### Example: Creating a TypeScript Rule
+
+Ask your AI assistant:
+```
+"Using mdc.mdc, create a rule called 'typescript-strict.mdc' that enforces:
+- Strict TypeScript configuration
+- No 'any' types
+- Explicit return types on functions
+- Interface over type aliases for object shapes"
+```
+
+The AI will generate something like:
+```markdown
+---
+description: Enforce strict TypeScript practices
+globs: ["**/*.ts", "**/*.tsx"]
+---
+
+# TypeScript Strict Mode
+
+Always use strict TypeScript configuration...
+```
+
+Save this to `rules/typescript-strict.mdc` and install it:
+```bash
+warden install ~/my-project --rules typescript-strict
+```
 
 ## Using Example Rules and Commands
 
@@ -90,24 +223,36 @@ EOF
 
 ## Features
 
-### Core Functionality
+### AI Coding Assistant Rules Management
 
-- **Centralized Rule Management**: Download and maintain MDC rules from a central location
-- **Custom Command Support**: Manage and distribute custom slash commands for AI tools
-- **Multiple Installation Modes**: Choose between symlinks (for synchronized updates) or copies (for project-specific modifications)
-- **Multi-Target Support**: Support for Cursor, Augment, Claude, Windsurf, and Codex
-- **State Tracking**: Keep track of all installed projects and their configurations
-- **Conversion Support**: Convert symlinks to copies when project-specific modifications are needed
+- **Multi-Assistant Support**: Manage rules for Cursor, Augment, Claude Code, Windsurf, and Codex from one tool
+- **Centralized Rules**: Store all your AI assistant rules in one place, sync to unlimited projects
+- **Automatic Sync**: Update rules once, propagate changes to all projects instantly
+- **Multi-Target Projects**: Install rules for multiple AI assistants in the same project (e.g., Cursor + Augment)
+- **Status Tracking**: See which projects have outdated rules, conflicts, or local modifications
+- **Symlinks or Copies**: Choose between automatic updates (symlinks) or project-specific customization (copies)
+
+### Custom Commands for AI Assistants
+
+- **Slash Commands**: Manage custom `/commands` for Augment, Claude, and Codex
+- **Command Library**: Pre-built commands for code review, testing, refactoring, and API design
+- **Sync Commands**: Keep custom commands consistent across all your projects
+- **Target-Specific**: Install commands only to assistants that support them
+
+### Team Collaboration & Sharing
+
+- **GitHub Packages**: Share rules and commands with your team via GitHub repositories
+- **Version Control**: Track package versions, check for updates, view diffs before updating
+- **Smart Discovery**: Search and install rules/commands by name across all packages
+- **Team Standards**: Enforce consistent AI coding practices across your organization
 
 ### Advanced Features
 
-- **GitHub Package Management**: Download and manage rule/command packages from GitHub repositories
-- **Version Control**: Track package versions, check for updates, and view diffs before updating
-- **Smart Discovery**: Automatically discover and install rules/commands by name across packages
-- **System-wide Configuration**: Install global configurations for supported AI tools
-- **Command Templates**: Pre-built commands for code review, testing, refactoring, and API design
+- **Global Configuration**: Install system-wide configs for Claude Desktop, Windsurf, and Codex
+- **Conflict Detection**: Three-way merge detection (source changed, user modified, or both)
+- **Change Tracking**: See exactly what changed before updating rules
 - **Flexible Installation**: Install rules only, commands only, or both together
-- **Git Integration**: Full git submodule support with version control
+- **Git Integration**: Full git submodule support for package management
 
 ## Installation
 
@@ -762,3 +907,17 @@ agent-rules/
 ## License
 
 This project is open source. Please check the repository for license details.
+
+---
+
+## Keywords & Search Terms
+
+**AI Coding Assistants:** Cursor, Augment, Claude Code, Windsurf, Codex, GitHub Copilot, AI pair programming
+
+**Rules Management:** cursor rules, augment rules, claude rules, .cursor/rules, .augment/rules, .claude/rules, AI assistant configuration, coding rules manager, rules synchronization
+
+**Commands Management:** custom commands, slash commands, AI commands, augment commands, claude commands
+
+**Use Cases:** manage AI rules across projects, sync cursor rules, centralized rules management, AI assistant configuration tool, team AI standards, enterprise AI coding practices
+
+**Related:** MDC rules, markdown documentation convention, AI coding standards, cursor rules manager, augment configuration, claude configuration, multi-project AI setup

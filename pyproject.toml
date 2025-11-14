@@ -5,11 +5,28 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-warden"
 version = "1.0.0"
-description = "Agent Warden - Manage and synchronize agentic AI tool configurations across multiple projects"
+description = "Centralized rules & commands manager for AI coding assistants - Sync Cursor, Augment, Claude rules across all projects"
 authors = [{name = "Agent Warden Contributors"}]
 license = {text = "GPL-3.0-or-later"}
 readme = "README.md"
 requires-python = ">=3.8"
+keywords = [
+    "cursor",
+    "augment",
+    "claude",
+    "ai-coding-assistant",
+    "cursor-rules",
+    "augment-rules",
+    "claude-rules",
+    "rules-manager",
+    "ai-assistant",
+    "coding-assistant",
+    "windsurf",
+    "codex",
+    "mdc",
+    "rules-sync",
+    "commands-manager",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -20,6 +37,9 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Quality Assurance",
 ]
 
 [project.scripts]
