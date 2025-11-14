@@ -1,16 +1,22 @@
-<div align="center">
-  <img src="logo.jpg" alt="Agent Warden Logo" width="200"/>
+<table>
+<tr>
+<td width="300" align="center">
+  <img src="logo.jpg" alt="Agent Warden Logo" width="300"/>
+</td>
+<td>
 
 # Agent Warden
 
-  **Centralized Rules & Commands Manager for AI Coding Assistants**
+**Centralized Rules & Commands Manager for AI Coding Assistants**
 
-  Sync Cursor Rules, Augment Rules, Claude Rules & Custom Commands Across All Your Projects
+Sync Cursor Rules, Augment Rules, Claude Rules & Custom Commands Across All Your Projects
 
-  [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-  [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-</div>
+</td>
+</tr>
+</table>
 
 ---
 
@@ -19,6 +25,7 @@
 Agent Warden is a powerful command-line tool that manages and synchronizes AI coding assistant rules and custom commands across multiple projects. Whether you're using Cursor, Augment, Claude Code, Windsurf, or Codex, Agent Warden keeps your AI assistant configurations consistent and up-to-date.
 
 **Perfect for:**
+
 - Teams using multiple AI coding assistants (Cursor + Augment + Claude)
 - Developers managing rules across many projects
 - Keeping AI assistant configurations synchronized
@@ -26,6 +33,7 @@ Agent Warden is a powerful command-line tool that manages and synchronizes AI co
 - Enterprise teams standardizing AI coding practices
 
 **Key Features:**
+
 - Centralized management of `.cursor/rules`, `.augment/rules`, `.claude/rules`
 - Sync rules and commands across unlimited projects
 - Support for Cursor, Augment, Claude Code, Windsurf, and Codex
@@ -36,6 +44,7 @@ Agent Warden is a powerful command-line tool that manages and synchronizes AI co
 ## Why Agent Warden?
 
 **The Problem:** You're using Cursor, Augment, or Claude Code across multiple projects. Each project needs the same coding rules, commit standards, and custom commands. You end up:
+
 - Manually copying `.cursor/rules` files between projects
 - Updating rules in 10+ projects when standards change
 - Forgetting which projects have which rules
@@ -76,6 +85,7 @@ warden project update my-project --all
 ## Remote SSH Support
 
 Agent Warden supports managing rules and commands on **remote machines via SSH**! This is perfect for:
+
 - Managing rules on remote development servers
 - Deploying AI assistant configurations to cloud instances
 - Keeping remote projects synchronized with your local standards
@@ -114,6 +124,7 @@ warden install server:/remote/path --target augment --rules coding-standards
    - Update detection works the same as local projects
 
 4. **Copy Mode**: Remote installations always use copy mode (symlinks not supported)
+
    ```bash
    # Remote automatically uses copy mode
    warden install server:/path --target augment --rules my-rule
@@ -194,12 +205,14 @@ warden config --show
 ```
 
 **Note:** Individual remote projects can still be updated directly:
+
 ```bash
 # This always works, regardless of the global setting
 warden project update my-remote-project
 ```
 
 **Use cases for disabling remote updates:**
+
 - Remote servers require password authentication (would interrupt automated updates)
 - Temporary network issues or VPN disconnections
 - Remote servers are offline or under maintenance
@@ -282,6 +295,7 @@ warden global-install cursor  # or augment, claude, etc.
 ### Example: Creating a TypeScript Rule
 
 Ask your AI assistant:
+
 ```
 "Using mdc.mdc, create a rule called 'typescript-strict.mdc' that enforces:
 - Strict TypeScript configuration
@@ -291,6 +305,7 @@ Ask your AI assistant:
 ```
 
 The AI will generate something like:
+
 ```markdown
 ---
 description: Enforce strict TypeScript practices
@@ -303,6 +318,7 @@ Always use strict TypeScript configuration...
 ```
 
 Save this to `rules/typescript-strict.mdc` and install it:
+
 ```bash
 warden install ~/my-project --rules typescript-strict
 ```
@@ -912,6 +928,7 @@ warden global-install codex
 ```
 
 **Key Features:**
+
 - Install the same project with multiple targets (e.g., both Augment and Cursor)
 - Configure default targets to avoid repeating --target flags
 - Each target maintains its own rules and commands
