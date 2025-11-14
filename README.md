@@ -343,6 +343,10 @@ warden project list
 # Show detailed project information
 warden project my-project
 
+# Configure default targets (avoid repeating --target)
+warden project configure my-project --targets augment cursor claude
+# Now adding rules without --target applies to all configured targets!
+
 # Update a specific project
 warden project update my-project
 
@@ -721,13 +725,17 @@ warden install ~/projects/multi-tool-app --target cursor --rules coding-no-emoji
 # Third installation adds claude target
 warden install ~/projects/multi-tool-app --target claude --rules coding-no-emoji --commands api-design
 
-# Add rules to all targets at once
-warden install --project multi-tool-app --rules git-commit
+# Configure default targets (so you don't have to specify --target every time)
+warden project configure multi-tool-app --targets augment cursor claude
 
-# Add rules to a specific target only
+# Now adding rules applies to all configured default targets automatically!
+warden install --project multi-tool-app --rules git-commit
+# ^ Installs to augment, cursor, AND claude
+
+# Add rules to a specific target only (overrides defaults)
 warden install --project multi-tool-app --rules typescript --target augment
 
-# Update all targets
+# Update all default targets
 warden project update multi-tool-app
 
 # Update a specific target
@@ -744,8 +752,9 @@ warden global-install codex
 
 **Key Features:**
 - Install the same project with multiple targets (e.g., both Augment and Cursor)
+- Configure default targets to avoid repeating --target flags
 - Each target maintains its own rules and commands
-- Add rules to all targets or specific targets
+- Add rules to all default targets or specific targets
 - Update and manage targets independently
 - Full backward compatibility with existing single-target projects
 

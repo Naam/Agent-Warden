@@ -357,7 +357,8 @@ class GitHubPackage:
 class ProjectState:
     """Represents the state of an installed project with support for multiple targets."""
 
-    def __init__(self, name: str, path: str, targets: Optional[Dict] = None, timestamp: Optional[str] = None):
+    def __init__(self, name: str, path: str, targets: Optional[Dict] = None, timestamp: Optional[str] = None,
+                 default_targets: Optional[List[str]] = None):
         """Initialize ProjectState.
 
         Args:
@@ -365,6 +366,7 @@ class ProjectState:
             path: Project path
             targets: Dict mapping target names to their configurations
             timestamp: Timestamp
+            default_targets: List of default target names for this project
         """
         self.name = name
         self.path = Path(path).resolve()
@@ -382,6 +384,9 @@ class ProjectState:
         #   'cursor': {...}
         # }
         self.targets = targets or {}
+
+        # Default targets: when adding rules without --target, use these
+        self.default_targets = default_targets or []
 
     def _normalize_installed_items(self, items: List) -> List[Dict]:
         """Normalize installed items to dict format with checksums."""
@@ -431,7 +436,8 @@ class ProjectState:
             'name': self.name,
             'path': str(self.path),
             'timestamp': self.timestamp,
-            'targets': self.targets
+            'targets': self.targets,
+            'default_targets': self.default_targets
         }
 
     @classmethod
@@ -446,7 +452,8 @@ class ProjectState:
                 name=data['name'],
                 path=data['path'],
                 timestamp=data.get('timestamp'),
-                targets=data['targets']
+                targets=data['targets'],
+                default_targets=data.get('default_targets', [])
             )
 
         # Old format with single 'target' key - convert to new format
@@ -1164,6 +1171,39 @@ class WardenManager:
 
         return project_state
 
+    def configure_project_targets(self, project_name: str, default_targets: List[str]) -> ProjectState:
+        """Configure default targets for a project.
+
+        Args:
+            project_name: Name of the project
+            default_targets: List of target names to set as defaults
+
+        Returns:
+            Updated ProjectState
+        """
+        if project_name not in self.config.state['projects']:
+            raise ProjectNotFoundError(f"Project '{project_name}' not found")
+
+        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+
+        # Validate that all default targets are installed
+        invalid_targets = [t for t in default_targets if not project_state.has_target(t)]
+        if invalid_targets:
+            raise WardenError(
+                f"Cannot set default targets that are not installed: {', '.join(invalid_targets)}\n"
+                f"Installed targets: {', '.join(project_state.targets.keys())}"
+            )
+
+        # Update default targets
+        project_state.default_targets = default_targets
+        project_state.timestamp = datetime.now().isoformat()
+
+        # Save state
+        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.save_state()
+
+        return project_state
+
     def add_to_project(self, project_name: str, rule_names: Optional[List[str]] = None,
                        command_names: Optional[List[str]] = None, target: Optional[str] = None) -> ProjectState:
         """Add rules and/or commands to an existing project.
@@ -1172,7 +1212,7 @@ class WardenManager:
             project_name: Name of the project
             rule_names: List of rule names to add
             command_names: List of command names to add
-            target: Specific target to add to. If None, adds to all targets.
+            target: Specific target to add to. If None, uses default_targets or all targets.
         """
         if project_name not in self.config.state['projects']:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
@@ -1188,7 +1228,13 @@ class WardenManager:
             if not project_state.has_target(target):
                 raise WardenError(f"Project '{project_name}' does not have target '{target}' installed")
             targets_to_update = [target]
+        elif project_state.default_targets:
+            # Use configured default targets
+            targets_to_update = [t for t in project_state.default_targets if project_state.has_target(t)]
+            if not targets_to_update:
+                raise WardenError(f"None of the default targets are installed for project '{project_name}'")
         else:
+            # Fall back to all targets
             targets_to_update = list(project_state.targets.keys())
 
         # Update each target
@@ -2186,6 +2232,13 @@ Examples:
     project_rename_parser.add_argument('old_name', help='Current name of the project')
     project_rename_parser.add_argument('new_name', help='New name for the project')
 
+    # Project configure command
+    project_configure_parser = project_subparsers.add_parser('configure', help='Configure default targets for a project')
+    project_configure_parser.add_argument('project_name', help='Name of the project to configure')
+    project_configure_parser.add_argument('--targets', nargs='+', required=True,
+                                         choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
+                                         help='Default targets to use when adding rules/commands')
+
     # List commands
     list_commands_parser = subparsers.add_parser('list-commands', help='List all available commands')
     list_commands_parser.add_argument('--info', '-i', metavar='COMMAND',
@@ -2275,8 +2328,12 @@ def format_project_detailed(project: ProjectState, manager: 'WardenManager') -> 
 
     info = (f"📦 {project.name}\n"
             f"   Path: {project.path}\n"
-            f"   Targets: {targets_str}\n"
-            f"   Updated: {format_timestamp(project.timestamp)}\n")
+            f"   Targets: {targets_str}\n")
+
+    if project.default_targets:
+        info += f"   Default Targets: {', '.join(project.default_targets)}\n"
+
+    info += f"   Updated: {format_timestamp(project.timestamp)}\n"
 
     # Get status for the project
     try:
@@ -2345,7 +2402,7 @@ def main():
     import sys
     if len(sys.argv) >= 3 and sys.argv[1] == 'project':
         # Check if the second argument is not a known subcommand
-        known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename']
+        known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename', 'configure']
         if sys.argv[2] not in known_subcommands and not sys.argv[2].startswith('-'):
             # Insert 'show' before the project name
             sys.argv.insert(2, 'show')
@@ -2457,18 +2514,31 @@ def main():
                     print(f"[ERROR] {e}")
                     return 1
 
+            elif args.project_command == 'configure':
+                try:
+                    project = manager.configure_project_targets(args.project_name, args.targets)
+                    print(f"[SUCCESS] Configured default targets for project '{project.name}'")
+                    print(f"   Default Targets: {', '.join(project.default_targets)}")
+                    print("\n   Now you can add rules without specifying --target:")
+                    print(f"   warden install --project {project.name} --rules my-rule")
+                    print(f"   (will install to: {', '.join(project.default_targets)})")
+                except (ProjectNotFoundError, WardenError) as e:
+                    print(f"[ERROR] {e}")
+                    return 1
+
         elif args.command == 'install':
             # Check if using existing project or new installation
             if args.project:
                 # Add to existing project
                 rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
                 command_names = args.commands if args.commands else None
+                target = args.target if hasattr(args, 'target') and args.target else None
 
                 if not rule_names and not command_names:
                     print("[ERROR] Must specify --rules or --commands when using --project")
                     return 1
 
-                project = manager.add_to_project(args.project, rule_names, command_names)
+                project = manager.add_to_project(args.project, rule_names, command_names, target)
 
                 print(f"[SUCCESS] Successfully added to project '{project.name}'")
                 if rule_names:
