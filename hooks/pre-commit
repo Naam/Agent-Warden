@@ -1,0 +1,53 @@
+#!/bin/bash
+# Pre-commit hook for AgentSync
+# Runs ruff checks and tests before allowing commit
+
+set -e
+
+echo "[PRE-COMMIT] Running code quality checks..."
+echo ""
+
+# Check if we're in a rebase/merge
+if [ -f .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+    echo "[INFO] Merge/rebase in progress, skipping pre-commit checks"
+    exit 0
+fi
+
+# Stash unstaged changes to test only what's being committed
+STASH_NAME="pre-commit-$(date +%s)"
+git stash push -q --keep-index -m "$STASH_NAME"
+
+# Function to restore stash on exit
+cleanup() {
+    if git stash list | grep -q "$STASH_NAME"; then
+        git stash pop -q
+    fi
+}
+trap cleanup EXIT
+
+# Run ruff checks
+echo "[CHECK] Running ruff linter..."
+if ! ruff check .; then
+    echo ""
+    echo "[FAILED] Ruff checks failed!"
+    echo "Fix the issues above or run: ruff check --fix ."
+    exit 1
+fi
+echo "[OK] Ruff checks passed"
+echo ""
+
+# Run tests
+echo "[CHECK] Running tests..."
+if ! pytest --quiet --tb=short; then
+    echo ""
+    echo "[FAILED] Tests failed!"
+    echo "Fix the failing tests before committing"
+    exit 1
+fi
+echo "[OK] All tests passed"
+echo ""
+
+echo "[SUCCESS] All pre-commit checks passed!"
+echo ""
+exit 0
+

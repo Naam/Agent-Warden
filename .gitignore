@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Agent Warden specific
+.warden_state.json
+.warden_config.json
+.augment/
+.cursor/
+.claude/
+.windsurf/
+.codex/
+
+# User-created rules and commands (examples are tracked)
+/rules/*
+!/rules/example/
+/commands/*
+!/commands/example/
+
+# Packages directory (user-managed, not tracked)
+/packages/*
+!/packages/.gitkeep
+
+# Temporary test directories
+test_project*/
+temp_*/
+tmp_*/
