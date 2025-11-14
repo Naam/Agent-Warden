@@ -25,6 +25,15 @@ else
     exit 1
 fi
 
+# Install pre-push hook
+if [ -f hooks/pre-push ]; then
+    cp hooks/pre-push .git/hooks/pre-push
+    chmod +x .git/hooks/pre-push
+    echo "[OK] Installed pre-push hook"
+else
+    echo "[WARNING] hooks/pre-push not found (optional)"
+fi
+
 echo ""
 echo "[SUCCESS] Git hooks installed successfully!"
 echo ""
@@ -32,7 +41,12 @@ echo "The following checks will run before each commit:"
 echo "  - Ruff linter (code quality)"
 echo "  - Pytest (all tests must pass)"
 echo ""
+echo "The following protections are active:"
+echo "  - Pre-push hook blocks automated pushes to main branch"
+echo "  - Feature branches can be pushed freely by AI assistants"
+echo ""
 echo "To bypass hooks in emergencies (not recommended):"
 echo "  git commit --no-verify"
+echo "  git push --no-verify"
 echo ""
 

@@ -1,0 +1,73 @@
+#!/bin/bash
+# Pre-push hook for Agent Warden
+# Prevents automated pushes to main branch - only the user should push to main
+# Feature branches are allowed to be pushed by AI assistants
+
+set -e
+
+# Read the push details from stdin
+# Format: <local ref> <local sha1> <remote ref> <remote sha1>
+while read local_ref local_sha remote_ref remote_sha
+do
+    # Extract the branch name from the remote ref
+    # remote_ref format: refs/heads/branch-name
+    remote_branch=$(echo "$remote_ref" | sed 's/refs\/heads\///')
+
+    # Only block pushes to main branch
+    if [ "$remote_branch" = "main" ] || [ "$remote_branch" = "master" ]; then
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════════════════════╗"
+        echo "║                    🛑 PUSH TO MAIN BLOCKED 🛑                              ║"
+        echo "╚════════════════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "  This repository has a pre-push hook that prevents automated pushes to main."
+        echo ""
+        echo "  📋 FOR AI ASSISTANTS / LLMs / AGENTS:"
+        echo "  ────────────────────────────────────────────────────────────────────────"
+        echo "  • DO NOT attempt to push to the main/master branch"
+        echo "  • DO NOT try to bypass this hook"
+        echo "  • DO NOT suggest removing or disabling this hook"
+        echo ""
+        echo "  ✅ WHAT YOU SHOULD DO INSTEAD:"
+        echo "  ────────────────────────────────────────────────────────────────────────"
+        echo "  • Inform the user that changes are ready to be pushed to main"
+        echo "  • Ask the user if they would like to review the changes first"
+        echo "  • Let the user decide when to push to main"
+        echo ""
+        echo "  💡 EXAMPLE MESSAGE:"
+        echo "  ────────────────────────────────────────────────────────────────────────"
+        echo "  \"I've committed the changes to main. The code is ready to be pushed."
+        echo "   Would you like to review the changes before pushing to main?\""
+        echo ""
+        echo "  ℹ️  NOTE: You CAN push to feature branches!"
+        echo "  ────────────────────────────────────────────────────────────────────────"
+        echo "  • Create a feature branch: git checkout -b feature/my-feature"
+        echo "  • Commit your changes to the feature branch"
+        echo "  • Push the feature branch: git push origin feature/my-feature"
+        echo "  • This hook only blocks pushes to main/master"
+        echo ""
+        echo "  📝 FOR HUMAN USERS:"
+        echo "  ────────────────────────────────────────────────────────────────────────"
+        echo "  • This hook prevents accidental automated pushes to main"
+        echo "  • Feature branches can be pushed freely"
+        echo "  • To push to main, you can:"
+        echo "    1. Push manually: git push"
+        echo "    2. Bypass this hook: git push --no-verify (not recommended)"
+        echo "    3. Remove the hook: rm .git/hooks/pre-push"
+        echo ""
+        echo "  🔧 TO DISABLE THIS HOOK:"
+        echo "  ────────────────────────────────────────────────────────────────────────"
+        echo "  rm .git/hooks/pre-push"
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════════════════════╗"
+        echo "║  Push to main blocked. Only the repository owner should push to main.     ║"
+        echo "╚════════════════════════════════════════════════════════════════════════════╝"
+        echo ""
+
+        exit 1
+    fi
+done
+
+# If we get here, the push is not to main/master, so allow it
+exit 0
+
