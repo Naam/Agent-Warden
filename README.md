@@ -49,8 +49,8 @@ warden install ~/project1 --rules coding-standards git-commit
 warden install ~/project2 --rules coding-standards git-commit
 warden install ~/project3 --rules coding-standards git-commit
 
-# Update the rule once, sync to all projects
-warden project update --all
+# Update the rule once, sync to all projects with one command
+warden project update
 ```
 
 ## Quick Start
@@ -347,11 +347,23 @@ warden project my-project
 warden project configure my-project --targets augment cursor claude
 # Now adding rules without --target applies to all configured targets!
 
-# Update a specific project
+# Update ALL projects with outdated rules/commands (skips conflicts)
+warden project update
+
+# Preview what would be updated across all projects
+warden project update --dry-run
+
+# Update a specific project (all outdated rules/commands)
 warden project update my-project
 
-# Update with conflicts (prompts for confirmation)
-warden project update my-project
+# Update specific rules in a project
+warden project update my-project --rules coding-no-emoji git-commit
+
+# Update specific commands in a project
+warden project update my-project --commands code-review
+
+# Preview what would be updated in a project
+warden project update my-project --dry-run
 
 # Force update conflicts without prompting
 warden project update my-project --force

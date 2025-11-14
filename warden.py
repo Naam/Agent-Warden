@@ -1780,7 +1780,8 @@ file = "~/.codex/warden.log"
         for project_name in self.config.state['projects']:
             try:
                 status = self.check_project_status(project_name)
-                if status['outdated_rules'] or status['outdated_commands'] or status['missing_sources']:
+                if (status['outdated_rules'] or status['outdated_commands'] or
+                    status['missing_sources'] or status['conflict_rules'] or status['conflict_commands']):
                     all_status[project_name] = status
             except Exception as e:
                 all_status[project_name] = {'error': str(e)}
@@ -2026,6 +2027,88 @@ file = "~/.codex/warden.log"
 
         return updated
 
+    def update_all_projects(self, dry_run: bool = False) -> Dict:
+        """Update all projects with outdated items, skipping conflicts.
+
+        Args:
+            dry_run: If True, only show what would be updated without making changes
+
+        Returns:
+            Dict with summary of updated, skipped, and error projects
+        """
+        summary = {
+            'updated': [],  # List of (project_name, updated_items) tuples
+            'skipped_conflicts': [],  # List of (project_name, conflicts) tuples
+            'skipped_uptodate': [],  # List of project names that are up to date
+            'errors': []  # List of (project_name, error) tuples
+        }
+
+        # Check all projects - this returns only projects with issues
+        all_status = self.check_all_projects_status()
+
+        # Track which projects have issues
+        projects_with_issues = set(all_status.keys())
+
+        # All other projects are up to date
+        for project_name in self.config.state['projects']:
+            if project_name not in projects_with_issues:
+                summary['skipped_uptodate'].append(project_name)
+
+        # Process each project with issues
+        for project_name, status in all_status.items():
+            if 'error' in status:
+                summary['errors'].append((project_name, status['error']))
+                continue
+
+            # Check if project has conflicts
+            has_conflicts = status.get('conflict_rules') or status.get('conflict_commands')
+
+            if has_conflicts:
+                conflicts = {
+                    'rules': [r['name'] for r in status.get('conflict_rules', [])],
+                    'commands': [c['name'] for c in status.get('conflict_commands', [])]
+                }
+                summary['skipped_conflicts'].append((project_name, conflicts))
+                continue
+
+            # Check if project has outdated items
+            has_outdated = status.get('outdated_rules') or status.get('outdated_commands')
+
+            if not has_outdated:
+                summary['skipped_uptodate'].append(project_name)
+                continue
+
+            # Update the project (skip conflicts automatically by not forcing)
+            if not dry_run:
+                try:
+                    result = self.update_project_items(
+                        project_name,
+                        update_all=True,
+                        force=False  # Don't force conflicts
+                    )
+
+                    updated_items = {
+                        'rules': result['rules'],
+                        'commands': result['commands'],
+                        'skipped': result.get('skipped', []),
+                        'errors': result.get('errors', [])
+                    }
+                    summary['updated'].append((project_name, updated_items))
+
+                except Exception as e:
+                    summary['errors'].append((project_name, str(e)))
+            else:
+                # Dry run - just record what would be updated
+                would_update = {
+                    'rules': [r['name'] for r in status.get('outdated_rules', [])],
+                    'commands': [c['name'] for c in status.get('outdated_commands', [])],
+                    'skipped': [],
+                    'errors': []
+                }
+                summary['updated'].append((project_name, would_update))
+
+        return summary
+
     def show_package_diff(self, package_name: str, show_files: bool = False) -> str:
         """Show diff for a package that has updates available."""
         if package_name not in self.config.registry['packages']:
@@ -2210,11 +2293,11 @@ Examples:
     project_show_parser.add_argument('project_name', help='Name of the project to show')
 
     # Project update command
-    project_update_parser = project_subparsers.add_parser('update', help='Update an existing project installation')
-    project_update_parser.add_argument('project_name', help='Name of the project to update')
+    project_update_parser = project_subparsers.add_parser('update', help='Update project(s) with outdated rules/commands')
+    project_update_parser.add_argument('project_name', nargs='?', help='Name of the project to update (omit to update all projects)')
     project_update_parser.add_argument('--rules', nargs='*', metavar='RULE', help='Update specific rules')
     project_update_parser.add_argument('--commands', nargs='*', metavar='COMMAND', help='Update specific commands')
-    project_update_parser.add_argument('--all', action='store_true', help='Update all outdated items')
+    project_update_parser.add_argument('--dry-run', action='store_true', help='Show what would be updated without making changes')
     project_update_parser.add_argument('--force', action='store_true', help='Force update conflicts without prompting')
 
     # Project sever command
@@ -2448,46 +2531,109 @@ def main():
 
             elif args.project_command == 'update':
                 try:
-                    if hasattr(args, 'rules') or hasattr(args, 'commands') or hasattr(args, 'all'):
+                    dry_run = args.dry_run if hasattr(args, 'dry_run') and args.dry_run else False
+
+                    # Check if updating all projects or a specific project
+                    if not args.project_name:
+                        # Update all projects
+                        if dry_run:
+                            print("[DRY RUN] Showing what would be updated:\n")
+
+                        summary = manager.update_all_projects(dry_run=dry_run)
+
+                        # Display results
+                        if summary['updated']:
+                            action = "Would update" if dry_run else "Updated"
+                            print(f"[SUCCESS] {action} {len(summary['updated'])} project(s):\n")
+                            for project_name, items in summary['updated']:
+                                print(f"  📦 {project_name}:")
+                                if items['rules']:
+                                    print(f"     Rules: {', '.join(items['rules'])}")
+                                if items['commands']:
+                                    print(f"     Commands: {', '.join(items['commands'])}")
+                                if items.get('skipped'):
+                                    print(f"     Skipped (conflicts): {', '.join(items['skipped'])}")
+                                if items.get('errors'):
+                                    print(f"     Errors: {len(items['errors'])}")
+                                print()
+
+                        if summary['skipped_conflicts']:
+                            print(f"[CONFLICT] Skipped {len(summary['skipped_conflicts'])} project(s) with conflicts (need manual resolution):\n")
+                            for project_name, conflicts in summary['skipped_conflicts']:
+                                print(f"  ⚠️  {project_name}:")
+                                if conflicts['rules']:
+                                    print(f"     Conflicted rules: {', '.join(conflicts['rules'])}")
+                                if conflicts['commands']:
+                                    print(f"     Conflicted commands: {', '.join(conflicts['commands'])}")
+                                print(f"     → Use: warden project update {project_name} --force")
+                                print()
+
+                        if summary['skipped_uptodate']:
+                            print(f"[INFO] {len(summary['skipped_uptodate'])} project(s) already up to date")
+
+                        if summary['errors']:
+                            print(f"\n[ERROR] Errors in {len(summary['errors'])} project(s):")
+                            for project_name, error in summary['errors']:
+                                print(f"  • {project_name}: {error}")
+
+                        if not summary['updated'] and not summary['skipped_conflicts'] and not summary['errors']:
+                            print("[INFO] All projects are up to date")
+
+                    else:
+                        # Update specific project
                         rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
                         command_names = args.commands if hasattr(args, 'commands') and args.commands is not None else None
-                        update_all = args.all if hasattr(args, 'all') and args.all else False
                         force = args.force if hasattr(args, 'force') and args.force else False
 
-                        if not rule_names and not command_names and not update_all:
-                            update_all = True
+                        # Determine if updating all items or specific ones
+                        update_all = not rule_names and not command_names
 
-                        result = manager.update_project_items(
-                            args.project_name,
-                            rule_names=rule_names,
-                            command_names=command_names,
-                            update_all=update_all,
-                            force=force
-                        )
+                        if dry_run:
+                            # Dry run for specific project
+                            status = manager.check_project_status(args.project_name)
+                            print(f"[DRY RUN] Would update project '{args.project_name}':\n")
 
-                        if result['rules'] or result['commands']:
-                            print(f"[SUCCESS] Updated project '{args.project_name}':")
-                            if result['rules']:
-                                print(f"   Rules: {', '.join(result['rules'])}")
-                            if result['commands']:
-                                print(f"   Commands: {', '.join(result['commands'])}")
+                            if status['outdated_rules']:
+                                print(f"  Rules to update: {', '.join([r['name'] for r in status['outdated_rules']])}")
+                            if status['outdated_commands']:
+                                print(f"  Commands to update: {', '.join([c['name'] for c in status['outdated_commands']])}")
+                            if status['conflict_rules']:
+                                print(f"  Conflicted rules (would skip): {', '.join([r['name'] for r in status['conflict_rules']])}")
+                            if status['conflict_commands']:
+                                print(f"  Conflicted commands (would skip): {', '.join([c['name'] for c in status['conflict_commands']])}")
+
+                            if not status['outdated_rules'] and not status['outdated_commands']:
+                                print("  No updates needed")
                         else:
-                            print(f"[INFO] No items updated for project '{args.project_name}'")
+                            # Actually update
+                            result = manager.update_project_items(
+                                args.project_name,
+                                rule_names=rule_names,
+                                command_names=command_names,
+                                update_all=update_all,
+                                force=force
+                            )
 
-                        if result.get('skipped'):
-                            print(f"\n[INFO] Skipped {len(result['skipped'])} item(s) due to conflicts:")
-                            for item in result['skipped']:
-                                print(f"   • {item}")
+                            if result['rules'] or result['commands']:
+                                print(f"[SUCCESS] Updated project '{args.project_name}':")
+                                if result['rules']:
+                                    print(f"   Rules: {', '.join(result['rules'])}")
+                                if result['commands']:
+                                    print(f"   Commands: {', '.join(result['commands'])}")
+                            else:
+                                print(f"[INFO] No items updated for project '{args.project_name}'")
 
-                        if result['errors']:
-                            print("\n[WARNING] Errors encountered:")
-                            for error in result['errors']:
-                                print(f"   • {error}")
-                    else:
-                        project = manager.update_project(args.project_name)
-                        print(f"[SUCCESS] Successfully updated project '{project.name}'")
-                        targets_str = ', '.join(project.targets.keys())
-                        print(f"   Targets: {targets_str}")
+                            if result.get('skipped'):
+                                print(f"\n[INFO] Skipped {len(result['skipped'])} item(s) due to conflicts:")
+                                for item in result['skipped']:
+                                    print(f"   • {item}")
+                                print("   Use --force to update conflicts")
+
+                            if result['errors']:
+                                print("\n[WARNING] Errors encountered:")
+                                for error in result['errors']:
+                                    print(f"   • {error}")
+
                 except (ProjectNotFoundError, WardenError) as e:
                     print(f"[ERROR] {e}")
                     return 1

@@ -146,3 +146,196 @@ class TestVersioning:
         assert 'Test rule' in diff or 'Updated version' in diff
         assert '---' in diff or '+++' in diff
 
+    def test_update_all_projects_with_outdated(self, manager, tmp_path):
+        """Test updating all projects when multiple have outdated items."""
+        # Create two projects with rules
+        project1_path = tmp_path / "project1"
+        project1_path.mkdir()
+        project2_path = tmp_path / "project2"
+        project2_path.mkdir()
+
+        # Install both projects
+        project1 = manager.install_project(
+            project1_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+        project2 = manager.install_project(
+            project2_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Update the source rule
+        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file.write_text("---\ndescription: Updated version\n---\n# Test Updated")
+
+        # Update all projects
+        summary = manager.update_all_projects(dry_run=False)
+
+        # Both projects should be updated
+        assert len(summary['updated']) == 2
+        updated_names = [name for name, _ in summary['updated']]
+        assert project1.name in updated_names
+        assert project2.name in updated_names
+
+        # Verify both were actually updated
+        for _name, items in summary['updated']:
+            assert 'test-rule' in items['rules']
+
+        # No conflicts or errors
+        assert len(summary['skipped_conflicts']) == 0
+        assert len(summary['errors']) == 0
+
+    def test_update_all_projects_skip_conflicts(self, manager, tmp_path):
+        """Test that projects with conflicts are skipped."""
+        # Create project with rule
+        project_path = tmp_path / "project_conflict"
+        project_path.mkdir()
+
+        project = manager.install_project(
+            project_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Modify source file
+        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file.write_text("---\ndescription: Updated source\n---\n# Source Updated")
+
+        # Modify installed file (different from both original and new source)
+        installed_file = project_path / ".augment" / "rules" / "test-rule.mdc"
+        installed_file.write_text("---\ndescription: User modified\n---\n# User Modified")
+
+        # Update all projects
+        summary = manager.update_all_projects(dry_run=False)
+
+        # Project should be skipped due to conflict
+        assert len(summary['skipped_conflicts']) == 1
+        assert summary['skipped_conflicts'][0][0] == project.name
+        conflicts = summary['skipped_conflicts'][0][1]
+        assert 'test-rule' in conflicts['rules']
+
+        # No projects updated
+        assert len(summary['updated']) == 0
+
+    def test_update_all_projects_skip_uptodate(self, manager, tmp_path):
+        """Test that up-to-date projects are skipped."""
+        # Create project with rule
+        project_path = tmp_path / "project_uptodate"
+        project_path.mkdir()
+
+        project = manager.install_project(
+            project_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Don't modify anything - project is up to date
+        summary = manager.update_all_projects(dry_run=False)
+
+        # Project should be skipped as up to date
+        assert len(summary['skipped_uptodate']) == 1
+        assert project.name in summary['skipped_uptodate']
+
+        # No updates or conflicts
+        assert len(summary['updated']) == 0
+        assert len(summary['skipped_conflicts']) == 0
+
+    def test_update_all_projects_dry_run(self, manager, tmp_path):
+        """Test dry run mode doesn't actually update."""
+        # Create project with rule
+        project_path = tmp_path / "project_dryrun"
+        project_path.mkdir()
+
+        project = manager.install_project(
+            project_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Update source
+        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file.write_text("---\ndescription: Updated version\n---\n# Test Updated")
+
+        # Get original installed content
+        installed_file = project_path / ".augment" / "rules" / "test-rule.mdc"
+        original_installed = installed_file.read_text()
+
+        # Dry run
+        summary = manager.update_all_projects(dry_run=True)
+
+        # Should show what would be updated
+        assert len(summary['updated']) == 1
+        assert summary['updated'][0][0] == project.name
+        assert 'test-rule' in summary['updated'][0][1]['rules']
+
+        # But file should NOT be actually updated
+        assert installed_file.read_text() == original_installed
+
+    def test_update_all_projects_mixed_scenarios(self, manager, tmp_path):
+        """Test update with mix of outdated, up-to-date, and conflict projects."""
+        # Create three projects
+        outdated_path = tmp_path / "outdated"
+        outdated_path.mkdir()
+        uptodate_path = tmp_path / "uptodate"
+        uptodate_path.mkdir()
+        conflict_path = tmp_path / "conflict"
+        conflict_path.mkdir()
+
+        # Install all three
+        outdated = manager.install_project(
+            outdated_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+        uptodate = manager.install_project(
+            uptodate_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+        conflict = manager.install_project(
+            conflict_path,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Update source (makes outdated and conflict outdated)
+        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file.write_text("---\ndescription: Updated source\n---\n# Source Updated")
+
+        # Modify conflict project's installed file (different from both original and new source)
+        conflict_file = conflict_path / ".augment" / "rules" / "test-rule.mdc"
+        conflict_file.write_text("---\ndescription: User modified\n---\n# User Modified")
+
+        # Update uptodate project to match source (make it up to date)
+        uptodate_file = uptodate_path / ".augment" / "rules" / "test-rule.mdc"
+        uptodate_file.write_text(rule_file.read_text())
+        # Update checksum in state
+        uptodate_state = manager.config.state['projects'][uptodate.name]
+        from warden import calculate_file_checksum
+        new_checksum = calculate_file_checksum(rule_file)
+        uptodate_state['targets']['augment']['installed_rules'][0]['checksum'] = new_checksum
+        manager.config.save_state()
+
+        # Update all
+        summary = manager.update_all_projects(dry_run=False)
+
+        # Verify results
+        assert len(summary['updated']) == 1
+        assert summary['updated'][0][0] == outdated.name
+
+        assert len(summary['skipped_conflicts']) == 1
+        assert summary['skipped_conflicts'][0][0] == conflict.name
+
+        assert len(summary['skipped_uptodate']) == 1
+        assert uptodate.name in summary['skipped_uptodate']
+
