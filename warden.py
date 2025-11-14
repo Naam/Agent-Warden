@@ -2684,7 +2684,13 @@ def main():
         return 1
 
     try:
-        manager = WardenManager()
+        # Check for WARDEN_HOME environment variable for testing/development
+        warden_home = os.environ.get('WARDEN_HOME')
+        if warden_home:
+            print(f"[INFO] Using WARDEN_HOME: {warden_home}")
+            manager = WardenManager(base_path=warden_home)
+        else:
+            manager = WardenManager()
 
         if args.command == 'project':
             # Handle project subcommands

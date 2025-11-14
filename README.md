@@ -1007,6 +1007,8 @@ pytest tests/test_rename.py
 pytest -v
 ```
 
+For detailed testing information, including manual testing with isolated environments, see [tests/README.md](tests/README.md).
+
 ### Code Quality
 
 ```bash
