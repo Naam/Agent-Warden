@@ -66,3 +66,6 @@ ENV/
 test_project*/
 temp_*/
 tmp_*/
+
+# Private scripts (not to be committed)
+.git/scripts/
