@@ -20,6 +20,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+from fs_backend import (
+    BackendError,
+    FileSystemBackend,
+    LocalBackend,
+    RemoteBackend,
+    RemoteOperationError,
+    RemotePathError,
+    RemotePermissionError,
+    SSHConnectionError,
+    parse_location,
+)
+
 
 class WardenError(Exception):
     """Base exception for Agent Warden errors."""
@@ -178,14 +190,19 @@ class WardenConfig:
         if self.config_path.exists():
             try:
                 with open(self.config_path) as f:
-                    return json.load(f)
+                    config = json.load(f)
+                    # Add default values for new config options if missing
+                    if 'update_remote_projects' not in config:
+                        config['update_remote_projects'] = True
+                    return config
             except (OSError, json.JSONDecodeError) as e:
                 print(f"Warning: Could not load config file: {e}")
 
         # Return default configuration
         return {
             'targets': self.TARGET_CONFIGS.copy(),
-            'default_target': self.DEFAULT_TARGET
+            'default_target': self.DEFAULT_TARGET,
+            'update_remote_projects': True  # Include remote projects in global updates by default
         }
 
     def _load_state(self) -> Dict:
@@ -363,13 +380,27 @@ class ProjectState:
 
         Args:
             name: Project name
-            path: Project path
+            path: Project path (can be local path or remote SSH location like user@host:/path)
             targets: Dict mapping target names to their configurations
             timestamp: Timestamp
             default_targets: List of default target names for this project
         """
         self.name = name
-        self.path = Path(path).resolve()
+
+        # Parse location to get path and backend
+        self.project_path, self.backend = parse_location(path)
+
+        # For backward compatibility, keep self.path as Path object for local paths
+        if isinstance(self.backend, LocalBackend):
+            self.path = Path(self.project_path).resolve()
+            # For local paths, store the resolved path as location string
+            self.location_string = str(self.path)
+        else:
+            # For remote paths, create a pseudo-Path that won't be used for file operations
+            self.path = Path(self.project_path)
+            # For remote paths, store the original SSH location string
+            self.location_string = path
+
         self.timestamp = timestamp or datetime.now().isoformat()
 
         # Multi-target support: targets is a dict like:
@@ -387,6 +418,10 @@ class ProjectState:
 
         # Default targets: when adding rules without --target, use these
         self.default_targets = default_targets or []
+
+    def is_remote(self) -> bool:
+        """Check if this project is on a remote machine."""
+        return isinstance(self.backend, RemoteBackend)
 
     def _normalize_installed_items(self, items: List) -> List[Dict]:
         """Normalize installed items to dict format with checksums."""
@@ -434,7 +469,7 @@ class ProjectState:
         """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
-            'path': str(self.path),
+            'path': self.location_string,  # Save original location string (local or remote)
             'timestamp': self.timestamp,
             'targets': self.targets,
             'default_targets': self.default_targets
@@ -530,28 +565,51 @@ class WardenManager:
         if not self.config.rules_path.exists():
             raise FileNotFoundError(f"MDC rules file not found: {self.config.rules_path}")
 
-    def _validate_project_path(self, project_path: Union[str, Path]) -> Path:
-        """Validate and resolve project path."""
+    def _validate_project_location(self, location: Union[str, Path]) -> Tuple[str, str, FileSystemBackend]:
+        """Validate and resolve project location (local or remote).
+
+        Returns:
+            Tuple of (location_string, project_path, backend)
+        """
+        location_str = str(location)
+
         try:
-            path = Path(project_path).resolve()
-        except (OSError, ValueError) as e:
-            raise WardenError(f"Invalid project path '{project_path}': {e}") from e
+            project_path, backend = parse_location(location_str)
+        except Exception as e:
+            raise WardenError(f"Invalid project location '{location_str}': {e}") from e
 
-        if not path.exists():
-            raise FileNotFoundError(f"Project path does not exist: {path}")
+        # Validate that the path exists and is a directory
+        try:
+            if not backend.exists(project_path):
+                raise WardenError(f"Project path does not exist: {location_str}")
 
-        if not path.is_dir():
-            raise NotADirectoryError(f"Project path is not a directory: {path}")
+            if not backend.is_dir(project_path):
+                raise WardenError(f"Project path is not a directory: {location_str}")
+        except (SSHConnectionError, RemotePermissionError, RemotePathError) as e:
+            raise WardenError(f"Cannot access remote location '{location_str}': {e}") from e
+        except BackendError as e:
+            raise WardenError(f"Backend error for '{location_str}': {e}") from e
+        except WardenError:
+            # Re-raise WardenError as-is
+            raise
 
-        # Check if we have read/write permissions
-        if not os.access(path, os.R_OK):
-            raise PermissionError(f"No read permission for project path: {path}")
+        # For local paths, return the resolved path as location_string for consistency
+        # For remote paths, return the original SSH location string
+        if isinstance(backend, LocalBackend):
+            resolved_location = str(Path(project_path).resolve())
+            return resolved_location, project_path, backend
+        else:
+            return location_str, project_path, backend
 
-        return path
+    def _get_project_name(self, project_path: str, backend: FileSystemBackend) -> str:
+        """Generate project name from path.
 
-    def _get_project_name(self, project_path: Path) -> str:
-        """Generate project name from path."""
-        return project_path.name
+        Args:
+            project_path: The project path (without host info for remote)
+            backend: The backend instance
+        """
+        # Extract the last component of the path
+        return Path(project_path).name
 
     def _create_target_directory(self, destination_path: Path):
         """Create target directory if it doesn't exist."""
@@ -754,7 +812,7 @@ class WardenManager:
             return 1, "", "Git not found. Please install git."
 
     def _install_command(self, command_spec: str, destination_dir: Path, use_copy: bool) -> Dict:
-        """Install a specific command or rule to the destination. Returns installation info with checksum."""
+        """Install a specific command or rule to the destination (local only). Returns installation info with checksum."""
         try:
             source_path, source_type = self._resolve_command_path(command_spec)
         except FileNotFoundError as e:
@@ -779,6 +837,51 @@ class WardenManager:
             self._copy_file(source_path, dest_path)
         else:
             self._create_symlink(source_path, dest_path)
+
+        return {
+            "name": command_spec,
+            "checksum": checksum,
+            "source": str(source_path),
+            "source_type": source_type,
+            "installed_at": datetime.now().isoformat()
+        }
+
+    def _install_command_with_backend(self, command_spec: str, destination_dir: str,
+                                     backend: FileSystemBackend, use_copy: bool) -> Dict:
+        """Install a specific command or rule using backend. Returns installation info with checksum.
+
+        Args:
+            command_spec: Command specification (e.g., 'coding-no-emoji' or 'owner/repo:rule-name')
+            destination_dir: Destination directory path (relative to backend's base)
+            backend: Backend to use for installation
+            use_copy: Whether to use copy mode
+        """
+        try:
+            source_path, source_type = self._resolve_command_path(command_spec)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Command '{command_spec}' not found: {e}") from e
+
+        if ':' in command_spec:
+            _, command_name = command_spec.split(':', 1)
+        else:
+            command_name = command_spec
+
+        if source_path.suffix == '.mdc':
+            dest_filename = f"{command_name}.mdc"
+        else:
+            dest_filename = f"{command_name}.md"
+
+        # Construct destination path
+        dest_path = f"{destination_dir.rstrip('/')}/{dest_filename}"
+
+        # Ensure parent directory exists
+        backend.mkdir(destination_dir, parents=True, exist_ok=True)
+
+        # Calculate checksum from source
+        checksum = calculate_file_checksum(source_path)
+
+        # Install file using backend
+        self._install_file_with_backend(source_path, dest_path, backend, use_copy)
 
         return {
             "name": command_spec,
@@ -813,7 +916,7 @@ class WardenManager:
                     self._create_symlink(source_path, dest_path)
 
     def _create_symlink(self, source: Path, destination: Path):
-        """Create a symlink from source to destination."""
+        """Create a symlink from source to destination (local only)."""
         try:
             # Remove existing file/symlink if it exists
             if destination.exists() or destination.is_symlink():
@@ -826,7 +929,7 @@ class WardenManager:
             raise FileOperationError(f"Failed to create symlink from {source} to {destination}: {e}") from e
 
     def _copy_file(self, source: Path, destination: Path):
-        """Copy file from source to destination."""
+        """Copy file from source to destination (local only)."""
         try:
             # Remove existing file if it exists
             if destination.exists():
@@ -837,6 +940,31 @@ class WardenManager:
             return True
         except (OSError, shutil.Error) as e:
             raise FileOperationError(f"Failed to copy file from {source} to {destination}: {e}") from e
+
+    def _install_file_with_backend(self, source_path: Path, dest_path: str,
+                                   backend: FileSystemBackend, use_copy: bool):
+        """Install a file using the appropriate backend.
+
+        Args:
+            source_path: Local source file path (from warden installation)
+            dest_path: Destination path (relative to backend's base path)
+            backend: Backend to use for installation
+            use_copy: Whether to use copy mode (symlinks only for local)
+        """
+        try:
+            if isinstance(backend, RemoteBackend):
+                # Remote always uses copy
+                backend.copy_file(str(source_path), dest_path)
+            elif use_copy:
+                # Local copy
+                backend.copy_file(str(source_path), dest_path)
+            else:
+                # Local symlink
+                if not backend.supports_symlinks():
+                    raise WardenError(f"Backend {backend.__class__.__name__} does not support symlinks")
+                backend.create_symlink(str(source_path), dest_path)
+        except (RemoteOperationError, BackendError) as e:
+            raise FileOperationError(f"Failed to install file to {dest_path}: {e}") from e
 
     def _is_symlink_to_rules(self, file_path: Path) -> bool:
         """Check if file is a symlink to our rules directory or a rule file."""
@@ -874,9 +1002,24 @@ class WardenManager:
         """Install MDC rules to a project. Supports multi-target installation.
 
         If the project path is already registered, this will add the new target to the existing project.
+
+        Args:
+            project_path: Local path or remote SSH location (user@host:/path)
+            target: Target configuration (augment, cursor, etc.)
+            use_copy: Use copy instead of symlink (required for remote)
+            install_commands: Whether to install commands
+            command_names: List of command names to install
+            rule_names: List of rule names to install
+            custom_name: Custom project name
         """
-        # Validate inputs
-        project_path = self._validate_project_path(project_path)
+        # Validate and parse location (local or remote)
+        location_string, parsed_path, backend = self._validate_project_location(project_path)
+
+        # Remote locations must use copy mode
+        if isinstance(backend, RemoteBackend):
+            if not use_copy:
+                print("[INFO] Remote locations require file copies (symlinks not supported)")
+                use_copy = True
 
         if target is None:
             target = self.config.config['default_target']
@@ -895,11 +1038,11 @@ class WardenManager:
             # Install all available commands
             command_names = self._get_available_commands()
 
-        # Check if project path already exists
+        # Check if project location already exists
         existing_project_name = None
         for existing_name, existing_data in self.config.state['projects'].items():
             existing = ProjectState.from_dict(existing_data)
-            if existing.path == project_path:
+            if existing.location_string == location_string:
                 existing_project_name = existing_name
                 break
 
@@ -923,19 +1066,21 @@ class WardenManager:
             # Install rules from rules/ directory or packages
             if rule_names:
                 rules_destination = project_state.get_rules_destination_path(self.config, target).parent
-                self._create_target_directory(rules_destination / "dummy")
+                # For local: use absolute path; for remote: use path relative to remote base
+                rules_dest_str = str(rules_destination)
 
                 for rule_name in rule_names:
-                    install_info = self._install_command(rule_name, rules_destination, use_copy)
+                    install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy)
                     installed_rules_list.append(install_info)
 
             # Install commands if requested
             if install_commands and command_names:
                 commands_destination = project_state.get_commands_destination_path(self.config, target)
-                self._create_target_directory(commands_destination / "dummy")
+                # For local: use absolute path; for remote: use path relative to remote base
+                commands_dest_str = str(commands_destination)
 
                 for command_name in command_names:
-                    install_info = self._install_command(command_name, commands_destination, use_copy)
+                    install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy)
                     installed_commands_list.append(install_info)
 
             project_state.add_target(
@@ -960,7 +1105,7 @@ class WardenManager:
                 raise WardenError("Custom project name cannot be empty")
             project_name = custom_name.strip()
         else:
-            project_name = self._get_project_name(project_path)
+            project_name = self._get_project_name(parsed_path, backend)
 
         if project_name in self.config.state['projects']:
             counter = 1
@@ -973,25 +1118,27 @@ class WardenManager:
         installed_rules_list = []
         installed_commands_list = []
 
-        # Create empty project state
-        project_state = ProjectState(name=project_name, path=str(project_path))
+        # Create empty project state with location string
+        project_state = ProjectState(name=project_name, path=location_string)
 
         # Install rules from rules/ directory or packages
         if rule_names:
             rules_destination = project_state.get_rules_destination_path(self.config, target).parent
-            self._create_target_directory(rules_destination / "dummy")
+            # For local: use absolute path; for remote: use path relative to remote base
+            rules_dest_str = str(rules_destination)
 
             for rule_name in rule_names:
-                install_info = self._install_command(rule_name, rules_destination, use_copy)
+                install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy)
                 installed_rules_list.append(install_info)
 
         # Install commands if requested
         if install_commands and command_names:
             commands_destination = project_state.get_commands_destination_path(self.config, target)
-            self._create_target_directory(commands_destination / "dummy")
+            # For local: use absolute path; for remote: use path relative to remote base
+            commands_dest_str = str(commands_destination)
 
             for command_name in command_names:
-                install_info = self._install_command(command_name, commands_destination, use_copy)
+                install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy)
                 installed_commands_list.append(install_info)
 
         # Add the target
@@ -1774,10 +1921,24 @@ file = "~/.codex/warden.log"
 
         return status
 
-    def check_all_projects_status(self) -> Dict[str, Dict]:
-        """Check status of all projects."""
+    def check_all_projects_status(self, include_remote: Optional[bool] = None) -> Dict[str, Dict]:
+        """Check status of all projects.
+
+        Args:
+            include_remote: If True, include remote projects. If False, skip remote projects.
+                          If None, use config setting (default: True)
+        """
+        # Determine whether to include remote projects
+        if include_remote is None:
+            include_remote = self.config.config.get('update_remote_projects', True)
+
         all_status = {}
         for project_name in self.config.state['projects']:
+            # Check if this is a remote project and should be skipped
+            project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+            if not include_remote and project_state.is_remote():
+                continue
+
             try:
                 status = self.check_project_status(project_name)
                 if (status['outdated_rules'] or status['outdated_commands'] or
@@ -2027,19 +2188,26 @@ file = "~/.codex/warden.log"
 
         return updated
 
-    def update_all_projects(self, dry_run: bool = False) -> Dict:
+    def update_all_projects(self, dry_run: bool = False, include_remote: Optional[bool] = None) -> Dict:
         """Update all projects with outdated items, skipping conflicts.
 
         Args:
             dry_run: If True, only show what would be updated without making changes
+            include_remote: If True, include remote projects. If False, skip remote projects.
+                          If None, use config setting (default: True)
 
         Returns:
             Dict with summary of updated, skipped, and error projects
         """
+        # Determine whether to include remote projects
+        if include_remote is None:
+            include_remote = self.config.config.get('update_remote_projects', True)
+
         summary = {
             'updated': [],  # List of (project_name, updated_items) tuples
             'skipped_conflicts': [],  # List of (project_name, conflicts) tuples
             'skipped_uptodate': [],  # List of project names that are up to date
+            'skipped_remote': [],  # List of remote project names that were skipped
             'errors': []  # List of (project_name, error) tuples
         }
 
@@ -2049,13 +2217,24 @@ file = "~/.codex/warden.log"
         # Track which projects have issues
         projects_with_issues = set(all_status.keys())
 
-        # All other projects are up to date
+        # All other projects are up to date or skipped
         for project_name in self.config.state['projects']:
             if project_name not in projects_with_issues:
-                summary['skipped_uptodate'].append(project_name)
+                # Check if this is a remote project and should be skipped
+                project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+                if not include_remote and project_state.is_remote():
+                    summary['skipped_remote'].append(project_name)
+                else:
+                    summary['skipped_uptodate'].append(project_name)
 
         # Process each project with issues
         for project_name, status in all_status.items():
+            # Check if this is a remote project and should be skipped
+            project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+            if not include_remote and project_state.is_remote():
+                summary['skipped_remote'].append(project_name)
+                continue
+
             if 'error' in status:
                 summary['errors'].append((project_name, status['error']))
                 continue
@@ -2218,6 +2397,10 @@ Examples:
   # Install rules to new project
   %(prog)s install /path/to/project --target augment --rules coding-no-emoji
 
+  # Install to remote server via SSH
+  %(prog)s install user@server.com:/var/www/app --target augment --rules coding-no-emoji
+  %(prog)s install myserver:/home/dev/project --target cursor --rules git-commit
+
   # Install with custom name
   %(prog)s install /path/to/app --name my-project --rules coding-no-emoji
 
@@ -2265,7 +2448,8 @@ Examples:
 
     # Install command
     install_parser = subparsers.add_parser('install', help='Install rules and/or commands to a project')
-    install_parser.add_argument('project_path', nargs='?', help='Path to the project directory (or use --project for existing)')
+    install_parser.add_argument('project_path', nargs='?',
+                               help='Local path or remote SSH location ([user@]host:path) to the project directory (or use --project for existing)')
     install_parser.add_argument('--project', metavar='NAME',
                                help='Use existing project by name instead of path')
     install_parser.add_argument('--target', choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
@@ -2339,6 +2523,9 @@ Examples:
     config_parser.add_argument('--set-default-target', metavar='TARGET',
                               choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
                               help='Set the default target for new installations')
+    config_parser.add_argument('--update-remote', metavar='BOOL',
+                              choices=['true', 'false', 'yes', 'no', 'on', 'off'],
+                              help='Enable/disable updating remote projects in global update commands')
     config_parser.add_argument('--show', action='store_true',
                               help='Show current configuration')
 
@@ -2567,6 +2754,11 @@ def main():
                                     print(f"     Conflicted commands: {', '.join(conflicts['commands'])}")
                                 print(f"     → Use: warden project update {project_name} --force")
                                 print()
+
+                        if summary['skipped_remote']:
+                            print(f"[INFO] Skipped {len(summary['skipped_remote'])} remote project(s) (remote updates disabled)")
+                            print("      → Enable with: warden config --update-remote true")
+                            print("      → Or update individually: warden project update <project-name>")
 
                         if summary['skipped_uptodate']:
                             print(f"[INFO] {len(summary['skipped_uptodate'])} project(s) already up to date")
@@ -2975,6 +3167,16 @@ def main():
                 # Check all projects
                 all_status = manager.check_all_projects_status()
 
+                # Check if remote projects are being skipped
+                include_remote = manager.config.config.get('update_remote_projects', True)
+                if not include_remote:
+                    # Count remote projects
+                    remote_count = sum(1 for p in manager.config.state['projects'].values()
+                                     if ProjectState.from_dict(p).is_remote())
+                    if remote_count > 0:
+                        print(f"[INFO] Skipping {remote_count} remote project(s) (remote updates disabled)")
+                        print("      → Enable with: warden config --update-remote true\n")
+
                 if not all_status:
                     print("[SUCCESS] All projects are up to date")
                 else:
@@ -3014,10 +3216,25 @@ def main():
                 manager.config.config['default_target'] = args.set_default_target
                 manager.config.save_config()
                 print(f"[SUCCESS] Default target set to '{args.set_default_target}'")
+            elif args.update_remote:
+                # Set update_remote_projects setting
+                value_map = {
+                    'true': True, 'yes': True, 'on': True,
+                    'false': False, 'no': False, 'off': False
+                }
+                new_value = value_map[args.update_remote.lower()]
+                manager.config.config['update_remote_projects'] = new_value
+                manager.config.save_config()
+                status = "enabled" if new_value else "disabled"
+                print(f"[SUCCESS] Remote project updates {status}")
+                if not new_value:
+                    print("[INFO] Remote projects will be skipped in 'warden project update-all' and 'warden status' commands")
+                    print("[INFO] You can still update individual remote projects with 'warden project update <project-name>'")
             elif args.show:
                 # Show current configuration
                 print("Agent Warden Configuration:")
                 print(f"   Default Target: {manager.config.config['default_target']}")
+                print(f"   Update Remote Projects: {manager.config.config.get('update_remote_projects', True)}")
                 print(f"   Base Path: {manager.config.base_path}")
                 print(f"   Rules Path: {manager.config.rules_path}")
                 print(f"   Commands Path: {manager.config.commands_path}")
@@ -3027,7 +3244,7 @@ def main():
                     supports_cmds = "✓" if config.get('supports_commands', False) else "✗"
                     print(f"   {target}: {supports_cmds} commands")
             else:
-                print("[ERROR] Must specify --set-default-target or --show")
+                print("[ERROR] Must specify --set-default-target, --update-remote, or --show")
                 return 1
 
         return 0

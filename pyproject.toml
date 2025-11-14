@@ -46,7 +46,7 @@ classifiers = [
 warden = "warden:main"
 
 [tool.setuptools]
-py-modules = ["warden"]
+py-modules = ["warden", "fs_backend"]
 
 [tool.ruff]
 target-version = "py38"

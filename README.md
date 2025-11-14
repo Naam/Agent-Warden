@@ -73,6 +73,155 @@ warden status  # Check what needs updating
 warden project update my-project --all
 ```
 
+## Remote SSH Support
+
+Agent Warden supports managing rules and commands on **remote machines via SSH**! This is perfect for:
+- Managing rules on remote development servers
+- Deploying AI assistant configurations to cloud instances
+- Keeping remote projects synchronized with your local standards
+- Managing rules on multiple remote machines from one location
+
+### Remote Installation
+
+Use standard SSH location format: `[user@]host:path`
+
+```bash
+# Install rules to a remote server
+warden install user@server.com:/var/www/project --target augment --rules coding-no-emoji
+
+# Using SSH config alias
+warden install myserver:/home/dev/app --target cursor --rules git-commit
+
+# Without explicit user (uses SSH config)
+warden install server:/remote/path --target augment --rules coding-standards
+```
+
+### How It Works
+
+1. **SSH Configuration**: Agent Warden relies on your `~/.ssh/config` for authentication
+   - No need to configure SSH keys separately
+   - Supports all SSH features (ProxyJump, IdentityFile, Port, etc.)
+   - Uses your existing SSH setup
+
+2. **File Transfer**: Automatically uses `rsync` (preferred) or `scp` for efficient file transfer
+   - Checksums verified on remote
+   - Atomic operations
+   - Compression for large files
+
+3. **State Management**: Project state is stored **locally only**
+   - Your local system tracks which remote projects have which rules
+   - Remote machines don't need Agent Warden installed
+   - Update detection works the same as local projects
+
+4. **Copy Mode**: Remote installations always use copy mode (symlinks not supported)
+   ```bash
+   # Remote automatically uses copy mode
+   warden install server:/path --target augment --rules my-rule
+   # [INFO] Remote locations require file copies (symlinks not supported)
+   ```
+
+### SSH Configuration Example
+
+Set up your `~/.ssh/config` once:
+
+```ssh-config
+Host myserver
+    HostName server.example.com
+    User deploy
+    Port 2222
+    IdentityFile ~/.ssh/deploy_key
+
+Host production
+    HostName prod.example.com
+    User app
+    ProxyJump bastion.example.com
+```
+
+Then use simple aliases in Agent Warden:
+
+```bash
+warden install myserver:/var/www/app --target augment --rules coding-standards
+warden install production:/opt/service --target cursor --rules git-commit
+```
+
+### Remote Operations
+
+All standard operations work with remote projects:
+
+```bash
+# List all projects (local and remote)
+warden project list
+
+# Update remote project
+warden project update my-remote-project
+
+# Check status of remote project
+warden status my-remote-project
+
+# Add more rules to remote project
+warden install --project my-remote-project --rules new-rule
+
+# Remove remote project from tracking
+warden project remove my-remote-project
+```
+
+### Requirements
+
+- **SSH client** installed (`ssh`, `scp`, `rsync`)
+- **SSH access** configured to remote machine
+- **Write permissions** on remote project directory
+- **Network connectivity** to remote machine
+
+### Controlling Remote Updates
+
+By default, global update commands (`warden project update-all` and `warden status`) include remote projects. You can disable this if you have remote projects that require password authentication or are temporarily unavailable:
+
+```bash
+# Disable remote project updates in global commands
+warden config --update-remote false
+
+# Check status (will skip remote projects)
+warden status
+
+# Update all projects (will skip remote projects)
+warden project update-all
+
+# Re-enable remote project updates
+warden config --update-remote true
+
+# View current setting
+warden config --show
+```
+
+**Note:** Individual remote projects can still be updated directly:
+```bash
+# This always works, regardless of the global setting
+warden project update my-remote-project
+```
+
+**Use cases for disabling remote updates:**
+- Remote servers require password authentication (would interrupt automated updates)
+- Temporary network issues or VPN disconnections
+- Remote servers are offline or under maintenance
+- You want to update only local projects quickly
+
+### Troubleshooting Remote Connections
+
+```bash
+# Test SSH connection first
+ssh user@server.com 'echo "Connection successful"'
+
+# Check if rsync is available
+which rsync
+
+# Verify remote path exists
+ssh user@server.com 'ls -la /var/www/project'
+
+# Check Agent Warden error messages
+warden install user@server:/path --target augment --rules test-rule
+# Error messages will indicate connection, permission, or path issues
+```
+
 ## Supported AI Coding Assistants
 
 | Assistant | Rules Support | Commands Support | Config Path |
