@@ -20,7 +20,7 @@ class TestProjectRename:
         # Create rules directory with a test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]
@@ -63,7 +63,7 @@ This is a test rule.
         # Create rules directory with a test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]
@@ -91,7 +91,7 @@ This is a test rule.
         # Create rules directory with a test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]
@@ -119,7 +119,7 @@ This is a test rule.
         # Create rules directory with a test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]
@@ -149,7 +149,7 @@ This is a test rule.
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
 
-        test_rule1 = rules_dir / "test-rule1.mdc"
+        test_rule1 = rules_dir / "test-rule1.md"
         test_rule1.write_text("""---
 description: Test rule 1
 globs: ["**/*.py"]
@@ -159,7 +159,7 @@ globs: ["**/*.py"]
 This is test rule 1.
 """)
 
-        test_rule2 = rules_dir / "test-rule2.mdc"
+        test_rule2 = rules_dir / "test-rule2.md"
         test_rule2.write_text("""---
 description: Test rule 2
 globs: ["**/*.js"]
@@ -193,7 +193,7 @@ This is test rule 2.
         # Create rules directory with a test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]
@@ -229,7 +229,7 @@ This is a test rule.
         # Create rules directory with a test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]

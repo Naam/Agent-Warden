@@ -13,8 +13,9 @@ class TestRemoteConfiguration:
         """Test that default configuration includes update_remote_projects setting."""
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
-        (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        rules_dir = warden_dir / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "test.md").write_text("---\ndescription: Test\nglobs: ['**/*.py']\nalwaysApply: true\ntype: always_apply\n---\n# Test")
         (warden_dir / "commands").mkdir()
 
         manager = WardenManager(base_path=warden_dir)
@@ -27,7 +28,7 @@ class TestRemoteConfiguration:
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
         (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        (warden_dir / "mdc.md").write_text("# MDC")
         (warden_dir / "commands").mkdir()
 
         # Create manager and change setting
@@ -54,9 +55,9 @@ class TestRemoteConfiguration:
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
         (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        (warden_dir / "mdc.md").write_text("# MDC")
         (warden_dir / "commands").mkdir()
-        (warden_dir / "rules" / "test.mdc").write_text("# Test")
+        (warden_dir / "rules" / "test.md").write_text("# Test")
 
         # Create local project
         local_project = tmp_path / "local"
@@ -98,9 +99,9 @@ class TestRemoteConfiguration:
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
         (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        (warden_dir / "mdc.md").write_text("# MDC")
         (warden_dir / "commands").mkdir()
-        (warden_dir / "rules" / "test.mdc").write_text("# Test")
+        (warden_dir / "rules" / "test.md").write_text("# Test")
 
         manager = WardenManager(base_path=warden_dir)
 
@@ -131,9 +132,9 @@ class TestRemoteConfiguration:
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
         (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        (warden_dir / "mdc.md").write_text("# MDC")
         (warden_dir / "commands").mkdir()
-        (warden_dir / "rules" / "test.mdc").write_text("# Test")
+        (warden_dir / "rules" / "test.md").write_text("# Test")
 
         manager = WardenManager(base_path=warden_dir)
 
@@ -160,7 +161,7 @@ class TestRemoteConfiguration:
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
         (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        (warden_dir / "mdc.md").write_text("# MDC")
         (warden_dir / "commands").mkdir()
 
         # Create old-style config without update_remote_projects

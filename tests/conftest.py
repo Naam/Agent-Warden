@@ -25,9 +25,62 @@ def config(temp_dir: Path) -> WardenConfig:
 @pytest.fixture
 def manager(temp_dir: Path) -> WardenManager:
     """Create a test manager with temporary directory."""
-    # Create required files
-    rules_file = temp_dir / "mdc.mdc"
-    rules_file.write_text("# Test MDC Rules\nThis is a test meta-rule.")
+    # Create required directories and files
+    rules_dir = temp_dir / "rules"
+    rules_dir.mkdir()
+
+    # Create test rules
+    test_rule = rules_dir / "test-rule.md"
+    test_rule.write_text("""---
+description: Test rule for unit tests
+globs: ["**/*.py"]
+alwaysApply: true
+type: always_apply
+---
+
+# Test Rule
+
+This is a test rule for unit tests.
+""")
+
+    rule1 = rules_dir / "rule1.md"
+    rule1.write_text("""---
+description: Rule 1 for testing
+globs: ["**/*.py"]
+alwaysApply: true
+type: always_apply
+---
+
+# Rule 1
+
+Test rule 1.
+""")
+
+    test = rules_dir / "test.md"
+    test.write_text("""---
+description: Test rule
+globs: ["**/*.py"]
+alwaysApply: true
+type: always_apply
+---
+
+# Test
+
+Test rule.
+""")
+
+    test_rule1 = rules_dir / "test-rule1.md"
+    test_rule1.write_text("""---
+description: Test rule 1
+globs: ["**/*.py"]
+alwaysApply: true
+type: always_apply
+---
+
+# Test Rule 1
+
+Test rule 1.
+""")
 
     commands_dir = temp_dir / "commands"
     commands_dir.mkdir()
@@ -41,6 +94,17 @@ tags: ["test"]
 # Test Command
 
 This is a test command for unit tests.
+""")
+
+    test_cmd = commands_dir / "test.md"
+    test_cmd.write_text("""---
+description: Test command
+tags: ["test"]
+---
+
+# Test
+
+Test command.
 """)
 
     return WardenManager(temp_dir)
@@ -63,16 +127,22 @@ def mock_git_repo(temp_dir: Path) -> Path:
     rules_dir.mkdir()
 
     # Create sample rules
-    (rules_dir / "typescript.mdc").write_text("""---
+    (rules_dir / "typescript.md").write_text("""---
 description: TypeScript rules
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: true
+type: always_apply
 ---
 
 # TypeScript Rules
 Test TypeScript rules.
 """)
 
-    (rules_dir / "react.mdc").write_text("""---
+    (rules_dir / "react.md").write_text("""---
 description: React rules
+globs: ["**/*.jsx", "**/*.tsx"]
+alwaysApply: true
+type: always_apply
 ---
 
 # React Rules

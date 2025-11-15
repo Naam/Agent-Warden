@@ -15,7 +15,7 @@ class TestMultiTarget:
         # Create test rules
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 globs: ["**/*.py"]
@@ -41,7 +41,7 @@ This is a test rule.
         # Verify augment directory was created
         augment_rules_dir = sample_project_dir / ".augment" / "rules"
         assert augment_rules_dir.exists()
-        assert (augment_rules_dir / "test-rule.mdc").exists()
+        assert (augment_rules_dir / "test-rule.md").exists()
 
         # Install for cursor (same project path)
         project2 = manager.install_project(
@@ -60,17 +60,17 @@ This is a test rule.
         # Verify cursor directory was created
         cursor_rules_dir = sample_project_dir / ".cursor" / "rules"
         assert cursor_rules_dir.exists()
-        assert (cursor_rules_dir / "test-rule.mdc").exists()
+        assert (cursor_rules_dir / "test-rule.md").exists()
 
         # Verify both directories still exist
-        assert augment_rules_dir.exists()
-        assert (augment_rules_dir / "test-rule.mdc").exists()
+        assert (sample_project_dir / ".augment" / "rules").exists()
+        assert (sample_project_dir / ".augment" / "rules" / "test-rule.md").exists()
 
     def test_install_duplicate_target_fails(self, manager: WardenManager, sample_project_dir: Path):
         """Test that installing the same target twice fails."""
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("""---
 description: Test rule
 ---
@@ -99,10 +99,10 @@ description: Test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
 
-        rule1 = rules_dir / "rule1.mdc"
+        rule1 = rules_dir / "rule1.md"
         rule1.write_text("---\ndescription: Rule 1\n---\n# Rule 1")
 
-        rule2 = rules_dir / "rule2.mdc"
+        rule2 = rules_dir / "rule2.md"
         rule2.write_text("---\ndescription: Rule 2\n---\n# Rule 2")
 
         # Install with rule1 for both targets
@@ -142,10 +142,10 @@ description: Test rule
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
 
-        rule1 = rules_dir / "rule1.mdc"
+        rule1 = rules_dir / "rule1.md"
         rule1.write_text("---\ndescription: Rule 1\n---\n# Rule 1")
 
-        rule2 = rules_dir / "rule2.mdc"
+        rule2 = rules_dir / "rule2.md"
         rule2.write_text("---\ndescription: Rule 2\n---\n# Rule 2")
 
         # Install with rule1 for both targets
@@ -203,7 +203,7 @@ description: Test rule
         """Test removing a specific target from a multi-target project."""
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("---\ndescription: Test\n---\n# Test")
 
         # Install for both targets
@@ -241,7 +241,7 @@ description: Test rule
         """Test updating a specific target."""
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("---\ndescription: Test\n---\n# Test")
 
         # Install for both targets
@@ -269,7 +269,7 @@ description: Test rule
         """Test severing a specific target from symlink to copy."""
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("---\ndescription: Test\n---\n# Test")
 
         # Install for cursor with symlink (augment always uses copy)
@@ -306,7 +306,7 @@ description: Test rule
         """Test installing three different targets to the same project."""
         rules_dir = manager.config.base_path / "rules"
         rules_dir.mkdir(exist_ok=True)
-        test_rule = rules_dir / "test-rule.mdc"
+        test_rule = rules_dir / "test-rule.md"
         test_rule.write_text("---\ndescription: Test\n---\n# Test")
 
         # Install for augment, cursor, and claude
@@ -341,8 +341,8 @@ description: Test rule
         assert project.has_target('claude')
 
         # Verify directories were created
-        assert (sample_project_dir / ".augment" / "rules" / "test-rule.mdc").exists()
-        assert (sample_project_dir / ".cursor" / "rules" / "test-rule.mdc").exists()
-        assert (sample_project_dir / ".claude" / "rules" / "test-rule.mdc").exists()
+        assert (sample_project_dir / ".augment" / "rules" / "test-rule.md").exists()
+        assert (sample_project_dir / ".cursor" / "rules" / "test-rule.md").exists()
+        assert (sample_project_dir / ".claude" / "rules" / "test-rule.md").exists()
 
 

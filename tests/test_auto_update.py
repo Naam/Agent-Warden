@@ -2,7 +2,7 @@
 
 import json
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -280,7 +280,9 @@ class TestAutoUpdater:
         timestamp = datetime.fromisoformat(timestamp_str)
 
         # Should be very recent (within last minute)
-        time_diff = datetime.now() - timestamp
+        # Use UTC to match the timestamp (which is now stored in UTC)
+        now = datetime.now(timezone.utc)
+        time_diff = now - timestamp
         assert time_diff.total_seconds() < 60
 
     def test_update_last_check_time_persists(self, auto_updater: AutoUpdater, temp_dir: Path):

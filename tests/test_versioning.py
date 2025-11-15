@@ -19,13 +19,9 @@ class TestVersioning:
         (base_path / "packages").mkdir()
         (base_path / "rules").mkdir()
 
-        # Create required mdc.mdc file
-        mdc_file = base_path / "mdc.mdc"
-        mdc_file.write_text("---\ndescription: MDC format\n---\n")
-
         # Create a test rule file
-        rule_file = base_path / "rules" / "test-rule.mdc"
-        rule_file.write_text("---\ndescription: Test rule\n---\n# Test")
+        rule_file = base_path / "rules" / "test-rule.md"
+        rule_file.write_text("---\ndescription: Test rule\nglobs: ['**/*.py']\nalwaysApply: true\ntype: always_apply\n---\n# Test")
 
         return WardenManager(base_path)
 
@@ -59,7 +55,7 @@ class TestVersioning:
     def test_check_status_source_updated(self, manager, installed_project, tmp_path):
         """Test status check when source file is updated."""
         # Update the source file
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Test rule updated\n---\n# Test")
 
         status = manager.check_project_status(installed_project.name)
@@ -72,7 +68,7 @@ class TestVersioning:
         """Test status check when user modifies installed file."""
         # Modify the installed file
         project_path = Path(installed_project.path)
-        installed_file = project_path / ".augment" / "rules" / "test-rule.mdc"
+        installed_file = project_path / ".augment" / "rules" / "test-rule.md"
         installed_file.write_text("---\ndescription: User modified\n---\n# Test")
 
         status = manager.check_project_status(installed_project.name)
@@ -84,12 +80,12 @@ class TestVersioning:
     def test_check_status_conflict(self, manager, installed_project, tmp_path):
         """Test status check when both source and installed are modified."""
         # Update source
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Source updated\n---\n# Test")
 
         # Modify installed
         project_path = Path(installed_project.path)
-        installed_file = project_path / ".augment" / "rules" / "test-rule.mdc"
+        installed_file = project_path / ".augment" / "rules" / "test-rule.md"
         installed_file.write_text("---\ndescription: User modified\n---\n# Test")
 
         status = manager.check_project_status(installed_project.name)
@@ -102,7 +98,7 @@ class TestVersioning:
     def test_update_project_items_specific_rule(self, manager, installed_project, tmp_path):
         """Test updating a specific rule."""
         # Update source
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated version\n---\n# Test")
 
         # Update the rule
@@ -122,7 +118,7 @@ class TestVersioning:
     def test_update_project_items_all(self, manager, installed_project, tmp_path):
         """Test updating all outdated items."""
         # Update source
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated version\n---\n# Test")
 
         # Update all
@@ -137,7 +133,7 @@ class TestVersioning:
     def test_show_diff(self, manager, installed_project, tmp_path):
         """Test showing diff between installed and current version."""
         # Update source
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated version\n---\n# Test Updated")
 
         # Get diff
@@ -169,7 +165,7 @@ class TestVersioning:
         )
 
         # Update the source rule
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated version\n---\n# Test Updated")
 
         # Update all projects
@@ -203,11 +199,11 @@ class TestVersioning:
         )
 
         # Modify source file
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated source\n---\n# Source Updated")
 
         # Modify installed file (different from both original and new source)
-        installed_file = project_path / ".augment" / "rules" / "test-rule.mdc"
+        installed_file = project_path / ".augment" / "rules" / "test-rule.md"
         installed_file.write_text("---\ndescription: User modified\n---\n# User Modified")
 
         # Update all projects
@@ -260,11 +256,11 @@ class TestVersioning:
         )
 
         # Update source
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated version\n---\n# Test Updated")
 
         # Get original installed content
-        installed_file = project_path / ".augment" / "rules" / "test-rule.mdc"
+        installed_file = project_path / ".augment" / "rules" / "test-rule.md"
         original_installed = installed_file.read_text()
 
         # Dry run
@@ -309,15 +305,15 @@ class TestVersioning:
         )
 
         # Update source (makes outdated and conflict outdated)
-        rule_file = manager.config.base_path / "rules" / "test-rule.mdc"
+        rule_file = manager.config.base_path / "rules" / "test-rule.md"
         rule_file.write_text("---\ndescription: Updated source\n---\n# Source Updated")
 
         # Modify conflict project's installed file (different from both original and new source)
-        conflict_file = conflict_path / ".augment" / "rules" / "test-rule.mdc"
+        conflict_file = conflict_path / ".augment" / "rules" / "test-rule.md"
         conflict_file.write_text("---\ndescription: User modified\n---\n# User Modified")
 
         # Update uptodate project to match source (make it up to date)
-        uptodate_file = uptodate_path / ".augment" / "rules" / "test-rule.mdc"
+        uptodate_file = uptodate_path / ".augment" / "rules" / "test-rule.md"
         uptodate_file.write_text(rule_file.read_text())
         # Update checksum in state
         uptodate_state = manager.config.state['projects'][uptodate.name]

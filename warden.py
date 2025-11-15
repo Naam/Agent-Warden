@@ -15,9 +15,11 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+
+import yaml
 
 from fs_backend import (
     BackendError,
@@ -46,6 +48,112 @@ def calculate_file_checksum(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 
+def parse_frontmatter(content: str) -> tuple[dict, str]:
+    """Parse YAML frontmatter from markdown content.
+
+    Args:
+        content: Markdown content that may contain frontmatter
+
+    Returns:
+        Tuple of (frontmatter_dict, body_content)
+    """
+    lines = content.split('\n')
+
+    # Check if file starts with frontmatter delimiter
+    if not lines or lines[0].strip() != '---':
+        return {}, content
+
+    # Find the closing delimiter
+    frontmatter_lines = []
+    body_start_idx = 0
+
+    for i in range(1, len(lines)):
+        if lines[i].strip() == '---':
+            # Found closing delimiter
+            body_start_idx = i + 1
+            break
+        frontmatter_lines.append(lines[i])
+    else:
+        # No closing delimiter found
+        return {}, content
+
+    # Parse YAML frontmatter
+    try:
+        frontmatter = yaml.safe_load('\n'.join(frontmatter_lines)) or {}
+    except yaml.YAMLError:
+        frontmatter = {}
+
+    # Get body content (skip leading blank lines)
+    body_lines = lines[body_start_idx:]
+    while body_lines and not body_lines[0].strip():
+        body_lines.pop(0)
+
+    return frontmatter, '\n'.join(body_lines)
+
+
+def strip_frontmatter(content: str) -> str:
+    """Strip YAML frontmatter from markdown content.
+
+    Args:
+        content: Markdown content that may contain frontmatter
+
+    Returns:
+        Content with frontmatter removed
+    """
+    _, body = parse_frontmatter(content)
+    return body
+
+
+def convert_rule_format(content: str, target: str) -> str:
+    """Convert rule format for specific target assistant.
+
+    This is the Hardware Abstraction Layer (HAL) that converts rules
+    from the canonical Augment format to target-specific formats.
+
+    Args:
+        content: Rule content in canonical Augment format
+        target: Target assistant ('claude', 'augment', 'cursor', 'windsurf', 'codex')
+
+    Returns:
+        Converted content for the target assistant
+    """
+    frontmatter, body = parse_frontmatter(content)
+
+    if target == 'claude':
+        # Claude CLI: Strip frontmatter completely, return plain markdown
+        return body
+
+    elif target == 'cursor':
+        # Cursor: Keep frontmatter with Cursor-specific fields
+        # Cursor uses: description, globs, alwaysApply
+        cursor_frontmatter = {}
+        if 'description' in frontmatter:
+            cursor_frontmatter['description'] = frontmatter['description']
+        if 'globs' in frontmatter:
+            cursor_frontmatter['globs'] = frontmatter['globs']
+        if 'alwaysApply' in frontmatter:
+            cursor_frontmatter['alwaysApply'] = frontmatter['alwaysApply']
+
+        # Reconstruct with Cursor frontmatter
+        import yaml
+        yaml_str = yaml.dump(cursor_frontmatter, default_flow_style=False, sort_keys=False)
+        return f"---\n{yaml_str}---\n\n{body}"
+
+    elif target == 'augment':
+        # Augment: Keep as-is (this is the canonical format)
+        # Augment uses: description, globs, alwaysApply, type
+        return content
+
+    elif target in ['windsurf', 'codex']:
+        # Windsurf/Codex: For now, use Augment format
+        # TODO: Customize if these assistants have different requirements
+        return content
+
+    else:
+        # Unknown target: return as-is
+        return content
+
+
 def format_timestamp(timestamp_str: str) -> str:
     """Format ISO timestamp to human-readable relative or absolute time.
 
@@ -57,7 +165,8 @@ def format_timestamp(timestamp_str: str) -> str:
     """
     try:
         timestamp = datetime.fromisoformat(timestamp_str)
-        now = datetime.now()
+        # Use same timezone as timestamp, or naive if timestamp is naive
+        now = datetime.now(timestamp.tzinfo) if timestamp.tzinfo else datetime.now()
         diff = now - timestamp
 
         # For times less than 1 minute ago
@@ -99,7 +208,7 @@ def get_file_info(file_path: Path, source_type: str = "unknown") -> Dict:
         "checksum": calculate_file_checksum(file_path),
         "source": str(file_path),
         "source_type": source_type,
-        "installed_at": datetime.now().isoformat()
+        "installed_at": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -163,7 +272,7 @@ class WardenConfig:
     DEFAULT_TARGET = 'augment'
     CONFIG_FILE = '.warden_config.json'
     STATE_FILE = '.warden_state.json'
-    RULES_FILE = 'mdc.mdc'
+    RULES_DIR = 'rules'
     COMMANDS_DIR = 'commands'
     PACKAGES_DIR = 'packages'
     REGISTRY_FILE = '.registry.json'
@@ -172,7 +281,7 @@ class WardenConfig:
         self.base_path = Path(base_path).resolve()
         self.config_path = self.base_path / self.CONFIG_FILE
         self.state_path = self.base_path / self.STATE_FILE
-        self.rules_path = self.base_path / self.RULES_FILE
+        self.rules_dir = self.base_path / self.RULES_DIR
         self.commands_path = self.base_path / self.COMMANDS_DIR
         self.packages_path = self.base_path / self.PACKAGES_DIR
         self.registry_path = self.packages_path / self.REGISTRY_FILE
@@ -319,7 +428,7 @@ class GitHubPackage:
         self.repo = repo
         self.ref = ref  # Target ref (branch/tag)
         self.installed_ref = installed_ref  # Currently installed ref
-        self.installed_at = installed_at or datetime.now().isoformat()
+        self.installed_at = installed_at or datetime.now(timezone.utc).isoformat()
         self.name = f"{owner}/{repo}"
 
     @property
@@ -398,7 +507,7 @@ class ProjectState:
             # For remote paths, store the original SSH location string
             self.location_string = path
 
-        self.timestamp = timestamp or datetime.now().isoformat()
+        self.timestamp = timestamp or datetime.now(timezone.utc).isoformat()
 
         # Multi-target support: targets is a dict like:
         # {
@@ -500,7 +609,7 @@ class ProjectState:
                             "name": item,
                             "checksum": None,
                             "source": None,
-                            "installed_at": data.get('timestamp', datetime.now().isoformat())
+                            "installed_at": data.get('timestamp', datetime.now(timezone.utc).isoformat())
                         })
                     elif isinstance(item, dict):
                         normalized.append(item)
@@ -526,14 +635,14 @@ class ProjectState:
         return cls(name=data['name'], path=data['path'], timestamp=data.get('timestamp'))
 
     def get_rules_destination_path(self, config: WardenConfig, target: str) -> Path:
-        """Get the full destination path for the MDC rules file.
+        """Get the full destination path for rules directory.
 
         Args:
             config: WardenConfig instance
             target: Target to get path for
         """
         target_rules_path = config.get_target_rules_path(target)
-        return self.path / target_rules_path / config.RULES_FILE
+        return self.path / target_rules_path
 
     def get_commands_destination_path(self, config: WardenConfig, target: str) -> Path:
         """Get the full destination path for commands directory.
@@ -558,9 +667,9 @@ class WardenManager:
 
         self.config = WardenConfig(base_path)
 
-        # Ensure rules file exists
-        if not self.config.rules_path.exists():
-            raise FileNotFoundError(f"MDC rules file not found: {self.config.rules_path}")
+        # Ensure rules directory exists
+        if not self.config.rules_dir.exists():
+            raise FileNotFoundError(f"Rules directory not found: {self.config.rules_dir}")
 
     def _validate_project_location(self, location: Union[str, Path]) -> Tuple[str, str, FileSystemBackend]:
         """Validate and resolve project location (local or remote).
@@ -646,12 +755,12 @@ class WardenManager:
         """Get list of available rule files from built-in rules directory and packages."""
         rules = []
 
-        # Built-in rules (from rules/ directory, not mdc.mdc)
+        # Built-in rules (from rules/ directory, not mdc.md)
         # Exclude the specific rules/example/ directory (shipped examples)
         rules_path = self.config.base_path / 'rules'
         if rules_path.exists():
             example_dir = rules_path / 'example'
-            for file_path in rules_path.rglob('*.mdc'):
+            for file_path in rules_path.rglob('*.md'):
                 # Skip files in the specific rules/example/ directory
                 try:
                     file_path.relative_to(example_dir)
@@ -698,7 +807,7 @@ class WardenManager:
                 return command_path, "built-in"
 
             # Try built-in rule (from rules/ directory)
-            rules_path = self.config.base_path / 'rules' / f"{command_spec}.mdc"
+            rules_path = self.config.base_path / 'rules' / f"{command_spec}.md"
             if rules_path.exists():
                 return rules_path, "built-in-rule"
 
@@ -718,7 +827,7 @@ class WardenManager:
             package_dir = self.config.packages_path / package.directory_name
 
             # Look for rule in package's rules directory
-            rule_path = package_dir / 'rules' / f"{rule_name}.mdc"
+            rule_path = package_dir / 'rules' / f"{rule_name}.md"
             if rule_path.exists():
                 return rule_path, f"package:{package_name}"
 
@@ -731,6 +840,11 @@ class WardenManager:
         results = {'rules': [], 'commands': []}
 
         query_lower = query.lower()
+
+        # Search built-in rules
+        for rule in self._get_available_rules():
+            if ':' not in rule and query_lower in rule.lower():
+                results['rules'].append(rule)
 
         # Search built-in commands
         for cmd in self._get_available_commands():
@@ -767,7 +881,7 @@ class WardenManager:
         # Discover rules in rules/ directory
         rules_dir = package_path / 'rules'
         if rules_dir.exists():
-            for rule_file in rules_dir.rglob('*.mdc'):
+            for rule_file in rules_dir.rglob('*.md'):
                 rel_path = rule_file.relative_to(rules_dir)
                 rule_name = str(rel_path.with_suffix(''))
 
@@ -814,10 +928,8 @@ class WardenManager:
         else:
             command_name = command_spec
 
-        if source_path.suffix == '.mdc':
-            dest_filename = f"{command_name}.mdc"
-        else:
-            dest_filename = f"{command_name}.md"
+        # All rule files are now .md
+        dest_filename = f"{command_name}.md"
 
         dest_path = destination_dir / dest_filename
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -834,11 +946,11 @@ class WardenManager:
             "checksum": checksum,
             "source": str(source_path),
             "source_type": source_type,
-            "installed_at": datetime.now().isoformat()
+            "installed_at": datetime.now(timezone.utc).isoformat()
         }
 
     def _install_command_with_backend(self, command_spec: str, destination_dir: str,
-                                     backend: FileSystemBackend, use_copy: bool) -> Dict:
+                                     backend: FileSystemBackend, use_copy: bool, target: str = None) -> Dict:
         """Install a specific command or rule using backend. Returns installation info with checksum.
 
         Args:
@@ -846,6 +958,7 @@ class WardenManager:
             destination_dir: Destination directory path (relative to backend's base)
             backend: Backend to use for installation
             use_copy: Whether to use copy mode
+            target: Target assistant (e.g., 'claude', 'augment', 'cursor')
         """
         try:
             source_path, source_type = self._resolve_command_path(command_spec)
@@ -857,10 +970,8 @@ class WardenManager:
         else:
             command_name = command_spec
 
-        if source_path.suffix == '.mdc':
-            dest_filename = f"{command_name}.mdc"
-        else:
-            dest_filename = f"{command_name}.md"
+        # All rule files are now .md
+        dest_filename = f"{command_name}.md"
 
         # Construct destination path
         dest_path = f"{destination_dir.rstrip('/')}/{dest_filename}"
@@ -872,14 +983,14 @@ class WardenManager:
         checksum = calculate_file_checksum(source_path)
 
         # Install file using backend
-        self._install_file_with_backend(source_path, dest_path, backend, use_copy)
+        self._install_file_with_backend(source_path, dest_path, backend, use_copy, target)
 
         return {
             "name": command_spec,
             "checksum": checksum,
             "source": str(source_path),
             "source_type": source_type,
-            "installed_at": datetime.now().isoformat()
+            "installed_at": datetime.now(timezone.utc).isoformat()
         }
 
     def _update_commands(self, project_state: ProjectState, use_copy: bool):
@@ -933,7 +1044,7 @@ class WardenManager:
             raise FileOperationError(f"Failed to copy file from {source} to {destination}: {e}") from e
 
     def _install_file_with_backend(self, source_path: Path, dest_path: str,
-                                   backend: FileSystemBackend, use_copy: bool):
+                                   backend: FileSystemBackend, use_copy: bool, target: str = None):
         """Install a file using the appropriate backend.
 
         Args:
@@ -941,9 +1052,37 @@ class WardenManager:
             dest_path: Destination path (relative to backend's base path)
             backend: Backend to use for installation
             use_copy: Whether to use copy mode (symlinks only for local)
+            target: Target assistant (e.g., 'claude', 'augment', 'cursor')
         """
         try:
-            if isinstance(backend, RemoteBackend):
+            # Check if we need to convert the rule format for the target
+            # Only convert .md rule files when copying (not symlinking)
+            should_convert = (
+                target is not None and
+                source_path.suffix == '.md' and
+                (isinstance(backend, RemoteBackend) or use_copy)
+            )
+
+            if should_convert:
+                # Read source file and convert format for target
+                content = source_path.read_text()
+                converted_content = convert_rule_format(content, target)
+
+                # Write converted content to destination
+                if isinstance(backend, RemoteBackend):
+                    # For remote, we need to write to a temp file first
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md') as tmp:
+                        tmp.write(converted_content)
+                        tmp_path = tmp.name
+                    try:
+                        backend.copy_file(tmp_path, dest_path)
+                    finally:
+                        Path(tmp_path).unlink()
+                else:
+                    # For local, write directly
+                    Path(dest_path).write_text(converted_content)
+            elif isinstance(backend, RemoteBackend):
                 # Remote always uses copy
                 backend.copy_file(str(source_path), dest_path)
             elif use_copy:
@@ -964,10 +1103,9 @@ class WardenManager:
 
         try:
             target = file_path.resolve()
-            # Check if it points to the old mdc.mdc file or any file in the rules directory
-            return (target == self.config.rules_path or
-                    target.parent == self.config.base_path / "rules" or
-                    str(target).startswith(str(self.config.base_path / "rules")))
+            # Check if it points to any file in the rules directory
+            return (target.parent == self.config.rules_dir or
+                    str(target).startswith(str(self.config.rules_dir)))
         except OSError:
             return False
 
@@ -1056,12 +1194,12 @@ class WardenManager:
 
             # Install rules from rules/ directory or packages
             if rule_names:
-                rules_destination = project_state.get_rules_destination_path(self.config, target).parent
+                rules_destination = project_state.get_rules_destination_path(self.config, target)
                 # For local: use absolute path; for remote: use path relative to remote base
                 rules_dest_str = str(rules_destination)
 
                 for rule_name in rule_names:
-                    install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy)
+                    install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy, target)
                     installed_rules_list.append(install_info)
 
             # Install commands if requested
@@ -1071,7 +1209,7 @@ class WardenManager:
                 commands_dest_str = str(commands_destination)
 
                 for command_name in command_names:
-                    install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy)
+                    install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy, target)
                     installed_commands_list.append(install_info)
 
             project_state.add_target(
@@ -1083,7 +1221,7 @@ class WardenManager:
                 installed_commands=installed_commands_list
             )
 
-            project_state.timestamp = datetime.now().isoformat()
+            project_state.timestamp = datetime.now(timezone.utc).isoformat()
             self.config.state['projects'][existing_project_name] = project_state.to_dict()
             self.config.save_state()
 
@@ -1114,12 +1252,12 @@ class WardenManager:
 
         # Install rules from rules/ directory or packages
         if rule_names:
-            rules_destination = project_state.get_rules_destination_path(self.config, target).parent
+            rules_destination = project_state.get_rules_destination_path(self.config, target)
             # For local: use absolute path; for remote: use path relative to remote base
             rules_dest_str = str(rules_destination)
 
             for rule_name in rule_names:
-                install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy)
+                install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy, target)
                 installed_rules_list.append(install_info)
 
         # Install commands if requested
@@ -1129,7 +1267,7 @@ class WardenManager:
             commands_dest_str = str(commands_destination)
 
             for command_name in command_names:
-                install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy)
+                install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy, target)
                 installed_commands_list.append(install_info)
 
         # Add the target
@@ -1189,7 +1327,7 @@ class WardenManager:
                 # as it's mainly used for the old single-target approach
 
         # Update timestamp
-        project_state.timestamp = datetime.now().isoformat()
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
         self.config.state['projects'][project_name] = project_state.to_dict()
         self.config.save_state()
 
@@ -1247,7 +1385,7 @@ class WardenManager:
                 continue
 
             # Get the rules directory for this target
-            rules_dir = project_state.get_rules_destination_path(self.config, target_name).parent
+            rules_dir = project_state.get_rules_destination_path(self.config, target_name)
 
             # Convert all rule files in the directory
             if not rules_dir.exists():
@@ -1258,10 +1396,10 @@ class WardenManager:
             if not os.access(rules_dir, os.W_OK):
                 raise PermissionError(f"No write permission for rules directory: {rules_dir}")
 
-            # Convert symlink to copy for all .mdc files
+            # Convert symlink to copy for all .md files
             if rule_name is None or rule_name == 'all':
                 converted_any = False
-                for rule_file in rules_dir.glob("*.mdc"):
+                for rule_file in rules_dir.glob("*.md"):
                     if self._is_symlink_to_rules(rule_file):
                         self._convert_symlink_to_copy(rule_file)
                         converted_any = True
@@ -1277,7 +1415,7 @@ class WardenManager:
                 raise NotImplementedError("Rule-specific severing is not yet implemented")
 
         # Update timestamp and save
-        project_state.timestamp = datetime.now().isoformat()
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
         self.config.state['projects'][project_name] = project_state.to_dict()
         self.config.save_state()
 
@@ -1337,7 +1475,7 @@ class WardenManager:
 
         # Update the project name
         project_state.name = new_name
-        project_state.timestamp = datetime.now().isoformat()
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
 
         # Remove old entry and add new one
         del self.config.state['projects'][old_name]
@@ -1371,7 +1509,7 @@ class WardenManager:
 
         # Update default targets
         project_state.default_targets = default_targets
-        project_state.timestamp = datetime.now().isoformat()
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
 
         # Save state
         self.config.state['projects'][project_name] = project_state.to_dict()
@@ -1419,7 +1557,7 @@ class WardenManager:
 
             # Add rules if requested
             if rule_names:
-                rules_destination = project_state.get_rules_destination_path(self.config, target_name).parent
+                rules_destination = project_state.get_rules_destination_path(self.config, target_name)
                 self._create_target_directory(rules_destination / "dummy")
 
                 for rule_name in rule_names:
@@ -1454,7 +1592,7 @@ class WardenManager:
                     target_config['has_commands'] = True
 
         # Update timestamp and save
-        project_state.timestamp = datetime.now().isoformat()
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
         self.config.state['projects'][project_name] = project_state.to_dict()
         self.config.save_state()
 
@@ -1554,7 +1692,7 @@ Rules source: {self.config.base_path / 'rules'}
         # Add all available rules from the rules directory
         rules_dir = self.config.base_path / 'rules'
         if rules_dir.exists():
-            for rule_file in sorted(rules_dir.glob('*.mdc')):
+            for rule_file in sorted(rules_dir.glob('*.md')):
                 rule_content = rule_file.read_text()
                 content += f"\n## Rule: {rule_file.stem}\n\n"
                 content += rule_content + "\n\n---\n"
@@ -1568,7 +1706,7 @@ Rules source: {self.config.base_path / 'rules'}
 This file contains global rules that apply to all projects in Windsurf.
 
 ## Rules Source
-Rules are managed by Agent Warden from: {self.config.rules_path}
+Rules are managed by Agent Warden from: {self.config.rules_dir}
 
 ## Available Commands
 Commands are available from: {self.config.commands_path}
@@ -1581,9 +1719,14 @@ use Agent Warden to install rules locally to your project.
 
 """
 
-        # Append the actual MDC rules content
-        if self.config.rules_path.exists():
-            content += self.config.rules_path.read_text()
+        # Append all rules from the rules directory
+        if self.config.rules_dir.exists():
+            for rule_file in sorted(self.config.rules_dir.glob('*.md')):
+                # Skip example directory
+                if 'example' in rule_file.parts:
+                    continue
+                content += f"\n## Rule: {rule_file.stem}\n\n"
+                content += rule_file.read_text() + "\n\n---\n"
 
         with open(config_path, 'w') as f:
             f.write(content)
@@ -1591,7 +1734,7 @@ use Agent Warden to install rules locally to your project.
     def _create_codex_global_config(self, config_path: Path):
         """Create Codex global configuration."""
         config_content = f"""[warden]
-rules_path = "{self.config.rules_path}"
+rules_dir = "{self.config.rules_dir}"
 commands_path = "{self.config.commands_path}"
 
 [warden.targets]
@@ -1875,7 +2018,7 @@ file = "~/.codex/warden.log"
                     continue
 
                 source_path = Path(rule_info['source'])
-                dest_path = project_state.get_rules_destination_path(self.config, target_name).parent / f"{rule_info['name']}.mdc"
+                dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{rule_info['name']}.md"
 
                 if not source_path.exists():
                     status['missing_sources'].append({
@@ -2063,7 +2206,7 @@ file = "~/.codex/warden.log"
             for rule in target_config.get('installed_rules', []):
                 if rule['name'] == item_name:
                     item_info = rule
-                    dest_path = project_state.get_rules_destination_path(self.config, target_name).parent / f"{item_name}.mdc"
+                    dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{item_name}.md"
                     break
 
             if item_info:
@@ -2222,7 +2365,7 @@ file = "~/.codex/warden.log"
 
                     # Get source and destination paths
                     source_path = Path(rule_info['source'])
-                    dest_path = project_state.get_rules_destination_path(self.config, target_name).parent / f"{rule_name}.mdc"
+                    dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{rule_name}.md"
 
                     if not source_path.exists():
                         updated['errors'].append(f"Source file not found for '{rule_name}' in target '{target_name}': {source_path}")
@@ -2234,7 +2377,7 @@ file = "~/.codex/warden.log"
                     # Update checksum
                     new_checksum = calculate_file_checksum(source_path)
                     target_config['installed_rules'][rule_index]['checksum'] = new_checksum
-                    target_config['installed_rules'][rule_index]['installed_at'] = datetime.now().isoformat()
+                    target_config['installed_rules'][rule_index]['installed_at'] = datetime.now(timezone.utc).isoformat()
 
                 if found and rule_name not in updated['rules']:
                     updated['rules'].append(rule_name)
@@ -2280,7 +2423,7 @@ file = "~/.codex/warden.log"
                     # Update checksum
                     new_checksum = calculate_file_checksum(source_path)
                     target_config['installed_commands'][cmd_index]['checksum'] = new_checksum
-                    target_config['installed_commands'][cmd_index]['installed_at'] = datetime.now().isoformat()
+                    target_config['installed_commands'][cmd_index]['installed_at'] = datetime.now(timezone.utc).isoformat()
 
                 if found and cmd_name not in updated['commands']:
                     updated['commands'].append(cmd_name)
@@ -2296,6 +2439,73 @@ file = "~/.codex/warden.log"
             self.config.save_state()
 
         return updated
+
+    def install_to_all_projects(self, rule_names: Optional[List[str]] = None,
+                                command_names: Optional[List[str]] = None,
+                                target: Optional[str] = None,
+                                skip_confirm: bool = False) -> Dict:
+        """Install rules and/or commands to all registered projects.
+
+        Args:
+            rule_names: List of rule names to install
+            command_names: List of command names to install
+            target: Specific target to install to (if None, uses project defaults)
+            skip_confirm: Skip confirmation prompt
+
+        Returns:
+            Dict with summary of installed, skipped, and error projects
+        """
+        if not rule_names and not command_names:
+            raise WardenError("Must specify at least one rule or command to install")
+
+        summary = {
+            'installed': [],  # List of (project_name, installed_items) tuples
+            'skipped': [],  # List of project names that were skipped
+            'errors': []  # List of (project_name, error) tuples
+        }
+
+        projects = self.list_projects()
+        if not projects:
+            raise WardenError("No projects registered. Use 'warden install <path>' to register a project first.")
+
+        # Show what will be installed
+        print(f"[INFO] Installing to {len(projects)} project(s):")
+        for project in projects:
+            print(f"  • {project.name}")
+        if rule_names:
+            print(f"[INFO] Rules: {', '.join(rule_names)}")
+        if command_names:
+            print(f"[INFO] Commands: {', '.join(command_names)}")
+        if target:
+            print(f"[INFO] Target: {target}")
+        print()
+
+        # Confirm unless skip_confirm is True
+        if not skip_confirm:
+            response = input("Continue? [y/N]: ").strip().lower()
+            if response not in ['y', 'yes']:
+                raise WardenError("Installation cancelled by user")
+
+        # Install to each project
+        for project in projects:
+            try:
+                self.add_to_project(
+                    project.name,
+                    rule_names=rule_names,
+                    command_names=command_names,
+                    target=target
+                )
+
+                installed_items = {
+                    'rules': rule_names or [],
+                    'commands': command_names or []
+                }
+                summary['installed'].append((project.name, installed_items))
+
+            except Exception as e:
+                summary['errors'].append((project.name, str(e)))
+
+        return summary
 
     def update_all_projects(self, dry_run: bool = False, include_remote: Optional[bool] = None) -> Dict:
         """Update all projects with outdated items, skipping conflicts.
@@ -2684,7 +2894,7 @@ class AutoUpdater:
 
     def update_last_check_time(self):
         """Update the last update check timestamp."""
-        self.config.state['last_update_check'] = datetime.now().isoformat()
+        self.config.state['last_update_check'] = datetime.now(timezone.utc).isoformat()
         self.config.save_state()
 
 
@@ -2695,7 +2905,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Install rules to new project
+  # Install rules to ALL registered projects
+  %(prog)s install --rules coding-no-emoji git-commit
+  %(prog)s install --commands code-review test-gen
+
+  # Install to specific existing project
+  %(prog)s install --project my-project --rules git-commit
+
+  # Install rules to new project (registers it)
   %(prog)s install /path/to/project --target augment --rules coding-no-emoji
 
   # Install to remote server via SSH
@@ -2705,14 +2922,8 @@ Examples:
   # Install with custom name
   %(prog)s install /path/to/app --name my-project --rules coding-no-emoji
 
-  # Add rules to existing project (no need to specify path/target again!)
-  %(prog)s install --project my-project --rules git-commit
-
-  # Add commands to existing project
-  %(prog)s install --project my-project --commands code-review test-gen
-
-  # Install both rules and commands to new project
-  %(prog)s install /path/to/project --rules coding-no-emoji --commands code-review
+  # Install both rules and commands
+  %(prog)s install --rules coding-no-emoji --commands code-review
 
   # Install package rules
   %(prog)s install /path/to/project --rules owner/repo:typescript
@@ -2720,7 +2931,8 @@ Examples:
   # Project management
   %(prog)s project list
   %(prog)s project my-project          # Show project details
-  %(prog)s project update my_project
+  %(prog)s project update              # Update ALL projects
+  %(prog)s project update my_project   # Update specific project
   %(prog)s project update my_project --target cursor  # Update only cursor target
   %(prog)s project update my_project --force  # Force update conflicts
   %(prog)s project sever my_project --target augment  # Sever only augment target
@@ -3219,13 +3431,13 @@ def main():
                     return 1
 
         elif args.command == 'install':
-            # Check if using existing project or new installation
-            if args.project:
-                # Add to existing project
-                rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
-                command_names = args.commands if args.commands else None
-                target = args.target if hasattr(args, 'target') and args.target else None
+            rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
+            command_names = args.commands if args.commands else None
+            target = args.target if hasattr(args, 'target') and args.target else None
 
+            # Check if installing to all projects, specific project, or new project
+            if args.project:
+                # Add to specific existing project
                 if not rule_names and not command_names:
                     print("[ERROR] Must specify --rules or --commands when using --project")
                     return 1
@@ -3238,16 +3450,47 @@ def main():
                 if command_names:
                     print(f"   Added Commands: {', '.join(command_names)}")
                 print(f"   Path: {project.path}")
-            else:
-                # New installation
-                if not args.project_path:
-                    print("[ERROR] Must specify project_path or use --project for existing project")
+
+            elif not args.project_path:
+                # Install to all projects (no project_path and no --project specified)
+                if not rule_names and not command_names:
+                    print("[ERROR] Must specify --rules or --commands to install")
                     return 1
 
-                # Determine what to install
+                try:
+                    summary = manager.install_to_all_projects(
+                        rule_names=rule_names,
+                        command_names=command_names,
+                        target=target,
+                        skip_confirm=args.yes
+                    )
+
+                    # Display results
+                    if summary['installed']:
+                        print(f"\n[SUCCESS] Installed to {len(summary['installed'])} project(s):\n")
+                        for project_name, items in summary['installed']:
+                            print(f"  📦 {project_name}:")
+                            if items['rules']:
+                                print(f"     Rules: {', '.join(items['rules'])}")
+                            if items['commands']:
+                                print(f"     Commands: {', '.join(items['commands'])}")
+                            print()
+
+                    if summary['errors']:
+                        print(f"\n[ERROR] Errors in {len(summary['errors'])} project(s):")
+                        for project_name, error in summary['errors']:
+                            print(f"  • {project_name}: {error}")
+
+                    if not summary['installed'] and not summary['errors']:
+                        print("[INFO] No projects to install to")
+
+                except WardenError as e:
+                    print(f"[ERROR] {e}")
+                    return 1
+
+            else:
+                # New installation to specific path
                 install_commands = args.commands is not None
-                command_names = args.commands if args.commands else None
-                rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
                 custom_name = args.name if hasattr(args, 'name') and args.name else None
 
                 project = manager.install_project(
@@ -3268,7 +3511,7 @@ def main():
                 for target_name, target_config in project.targets.items():
                     print(f"\n   [{target_name}]")
                     if target_config.get('has_rules') and target_config.get('installed_rules'):
-                        print(f"      Rules: {project.get_rules_destination_path(manager.config, target_name).parent}")
+                        print(f"      Rules: {project.get_rules_destination_path(manager.config, target_name)}")
                         rule_names_display = [r['name'] if isinstance(r, dict) else r for r in target_config['installed_rules']]
                         print(f"      Installed Rules: {', '.join(rule_names_display)}")
                     if target_config.get('has_commands') and target_config.get('installed_commands'):
@@ -3442,7 +3685,20 @@ def main():
                         print(f"   • {cmd}")
                     print()
 
-                print("[TIP] Install with: warden install /path/to/project --commands package:command")
+                # Provide helpful installation tips
+                tips = []
+                if results['rules'] and results['commands']:
+                    tips.append("Install rules: warden install /path/to/project --rules <rule-name>")
+                    tips.append("Install commands: warden install /path/to/project --commands <command-name>")
+                elif results['rules']:
+                    tips.append("Install with: warden install /path/to/project --rules <rule-name>")
+                elif results['commands']:
+                    tips.append("Install with: warden install /path/to/project --commands <command-name>")
+
+                if tips:
+                    print("[TIP]")
+                    for tip in tips:
+                        print(f"   {tip}")
 
         elif args.command == 'status':
             if args.project_name:
@@ -3612,7 +3868,7 @@ def main():
                 print(f"   Update Remote Projects: {manager.config.config.get('update_remote_projects', True)}")
                 print(f"   Auto Update: {manager.config.config.get('auto_update', True)}")
                 print(f"   Base Path: {manager.config.base_path}")
-                print(f"   Rules Path: {manager.config.rules_path}")
+                print(f"   Rules Directory: {manager.config.rules_dir}")
                 print(f"   Commands Path: {manager.config.commands_path}")
                 print(f"   Packages Path: {manager.config.packages_path}")
                 print("\nAvailable Targets:")

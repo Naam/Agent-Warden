@@ -90,7 +90,7 @@ class TestProjectState:
         state.add_target("augment", "symlink")
 
         rules_path = state.get_rules_destination_path(config, "augment")
-        expected = project_path.resolve() / ".augment" / "rules" / "mdc.mdc"
+        expected = project_path.resolve() / ".augment" / "rules"
 
         assert rules_path == expected
 

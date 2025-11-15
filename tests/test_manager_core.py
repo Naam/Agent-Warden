@@ -52,11 +52,11 @@ class TestWardenManagerCore:
         (rules_dir / "mdc.mdc").write_text("# Meta rule")
         (rules_dir / "meta.mdc").write_text("# Meta rule")
         (rules_dir / "format.mdc").write_text("# Format rule")
-        (rules_dir / "template.mdc").write_text("# Template rule")
+        (rules_dir / "template.md").write_text("---\ndescription: Template\n---\n# Template rule")
 
         # Create actual rules that should be included
-        (rules_dir / "python.mdc").write_text("# Python rule")
-        (rules_dir / "javascript.mdc").write_text("# JavaScript rule")
+        (rules_dir / "python.md").write_text("---\ndescription: Python\n---\n# Python rule")
+        (rules_dir / "javascript.md").write_text("---\ndescription: JavaScript\n---\n# JavaScript rule")
 
         content = manager._discover_package_content(repo_dir)
 
@@ -108,7 +108,7 @@ class TestWardenManagerCore:
 
         path, source = manager._resolve_rule_path("testuser/testrepo:typescript")
 
-        assert path.name == "typescript.mdc"
+        assert path.name == "typescript.md"
         assert source == "package:testuser/testrepo"
 
     def test_resolve_rule_path_builtin_not_allowed(self, manager: WardenManager):

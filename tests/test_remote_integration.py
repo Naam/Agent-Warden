@@ -47,12 +47,8 @@ class TestRemoteInstallation:
         rules_dir.mkdir()
 
         # Create a test rule file
-        test_rule = rules_dir / "test-rule.mdc"
-        test_rule.write_text("# Test Rule\nThis is a test rule.")
-
-        # Create mdc.mdc file
-        mdc_file = warden_dir / "mdc.mdc"
-        mdc_file.write_text("# MDC Rules")
+        test_rule = rules_dir / "test-rule.md"
+        test_rule.write_text("---\ndescription: Test Rule\nglobs: ['**/*.py']\nalwaysApply: true\ntype: always_apply\n---\n# Test Rule\nThis is a test rule.")
 
         # Create commands directory
         commands_dir = warden_dir / "commands"
@@ -92,10 +88,10 @@ class TestRemoteInstallation:
         # Setup warden
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
-        (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        rules_dir = warden_dir / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "test.md").write_text("---\ndescription: Test\nglobs: ['**/*.py']\nalwaysApply: true\ntype: always_apply\n---\n# Test")
         (warden_dir / "commands").mkdir()
-        (warden_dir / "rules" / "test.mdc").write_text("# Test")
 
         manager = WardenManager(base_path=warden_dir)
 
@@ -128,8 +124,9 @@ class TestRemoteInstallation:
         # Setup warden
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
-        (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        rules_dir = warden_dir / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "test.md").write_text("---\ndescription: Test\nglobs: ['**/*.py']\nalwaysApply: true\ntype: always_apply\n---\n# Test")
         (warden_dir / "commands").mkdir()
 
         manager = WardenManager(base_path=warden_dir)
@@ -146,10 +143,10 @@ class TestRemoteInstallation:
         # Setup warden
         warden_dir = tmp_path / "warden"
         warden_dir.mkdir()
-        (warden_dir / "rules").mkdir()
-        (warden_dir / "mdc.mdc").write_text("# MDC")
+        rules_dir = warden_dir / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "test.md").write_text("---\ndescription: Test\nglobs: ['**/*.py']\nalwaysApply: true\ntype: always_apply\n---\n# Test")
         (warden_dir / "commands").mkdir()
-        (warden_dir / "rules" / "test.mdc").write_text("# Test")
 
         # Setup project
         project_dir = tmp_path / "project"
