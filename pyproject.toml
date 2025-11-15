@@ -47,6 +47,7 @@ warden = "warden:main"
 
 [tool.setuptools]
 py-modules = ["warden", "fs_backend"]
+packages = ["agent_warden"]
 
 [tool.ruff]
 target-version = "py38"
