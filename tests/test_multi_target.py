@@ -295,7 +295,7 @@ description: Test rule
         assert project.targets['augment']['install_type'] == 'copy'
 
         # Sever only cursor
-        severed = manager.sever_project(project.name, target='cursor')
+        severed = manager.sever_project(project.name, target='cursor', skip_confirm=True)
 
         # Verify cursor is now copy
         assert severed.targets['cursor']['install_type'] == 'copy'

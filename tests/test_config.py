@@ -84,7 +84,7 @@ class TestWardenConfig:
         # Test Claude path (should exist)
         claude_path = config.get_global_config_path('claude')
         assert claude_path is not None
-        assert 'claude_desktop_config.json' in str(claude_path)
+        assert 'CLAUDE.md' in str(claude_path)
 
         # Test Windsurf path
         windsurf_path = config.get_global_config_path('windsurf')

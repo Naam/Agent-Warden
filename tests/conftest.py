@@ -59,7 +59,7 @@ def mock_git_repo(temp_dir: Path) -> Path:
     repo_dir.mkdir(parents=True)
 
     # Create rules directory
-    rules_dir = repo_dir / "rules-mdc"
+    rules_dir = repo_dir / "rules"
     rules_dir.mkdir()
 
     # Create sample rules

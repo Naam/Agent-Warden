@@ -12,7 +12,6 @@ import difflib
 import hashlib
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -145,7 +144,7 @@ class WardenConfig:
             'rules_path': '.claude/rules/',
             'commands_path': '.claude/commands/',
             'supports_commands': True,
-            'global_config': 'claude_desktop_config.json'
+            'global_config': 'CLAUDE.md'
         },
         'windsurf': {
             'rules_path': '.windsurf/rules/',
@@ -285,16 +284,11 @@ class WardenConfig:
 
     def _get_system_config_path(self, target: str, config_file: str) -> Path:
         """Get system-wide configuration path based on platform."""
-        system = platform.system()
         home = Path.home()
 
         if target == 'claude':
-            if system == 'Darwin':  # macOS
-                return home / 'Library' / 'Application Support' / 'Claude' / config_file
-            elif system == 'Windows':
-                return Path(os.environ.get('APPDATA', '')) / 'Claude' / config_file
-            else:  # Linux
-                return home / '.config' / 'claude' / config_file
+            # Claude Code CLI uses ~/.claude/ directory
+            return home / '.claude' / config_file
         elif target == 'windsurf':
             return home / '.codeium' / 'windsurf' / 'memories' / config_file
         elif target == 'codex':
@@ -720,14 +714,12 @@ class WardenManager:
             package = GitHubPackage.from_dict(package_data)
             package_dir = self.config.packages_path / package.directory_name
 
-            # Try multiple possible rules directories
-            possible_rules_dirs = ['rules', 'rules-mdc', 'mdc-rules', 'cursor-rules']
-            for dir_name in possible_rules_dirs:
-                rule_path = package_dir / dir_name / f"{rule_name}.mdc"
-                if rule_path.exists():
-                    return rule_path, f"package:{package_name}"
+            # Look for rule in package's rules directory
+            rule_path = package_dir / 'rules' / f"{rule_name}.mdc"
+            if rule_path.exists():
+                return rule_path, f"package:{package_name}"
 
-            raise FileNotFoundError(f"Rule '{rule_name}' not found in package '{package_name}'")
+            raise FileNotFoundError(f"Rule '{rule_name}' not found in package '{package_name}' (expected in rules/ directory)")
         else:
             raise FileNotFoundError("No built-in rules available for installation. Use package rules instead.")
 
@@ -769,29 +761,25 @@ class WardenManager:
         """Discover rules and commands in a package directory."""
         content = {'rules': [], 'commands': []}
 
-        possible_rules_dirs = ['rules', 'rules-mdc', 'mdc-rules', 'cursor-rules']
-        for dir_name in possible_rules_dirs:
-            rules_dir = package_path / dir_name
-            if rules_dir.exists():
-                for rule_file in rules_dir.rglob('*.mdc'):
-                    rel_path = rule_file.relative_to(rules_dir)
-                    rule_name = str(rel_path.with_suffix(''))
+        # Discover rules in rules/ directory
+        rules_dir = package_path / 'rules'
+        if rules_dir.exists():
+            for rule_file in rules_dir.rglob('*.mdc'):
+                rel_path = rule_file.relative_to(rules_dir)
+                rule_name = str(rel_path.with_suffix(''))
 
-                    if rule_name.lower() in ['mdc', 'meta', 'format', 'template']:
-                        continue
+                # Skip meta-rules
+                if rule_name.lower() in ['mdc', 'meta', 'format', 'template']:
+                    continue
 
-                    content['rules'].append(rule_name)
-                break
+                content['rules'].append(rule_name)
 
-        # Look for commands in multiple possible directories
-        possible_commands_dirs = ['commands', 'commands-mdc', 'mdc-commands', 'cursor-commands']
-        for dir_name in possible_commands_dirs:
-            commands_dir = package_path / dir_name
-            if commands_dir.exists():
-                for cmd_file in commands_dir.rglob('*.md'):
-                    rel_path = cmd_file.relative_to(commands_dir)
-                    content['commands'].append(str(rel_path.with_suffix('')))
-                break  # Use first found directory
+        # Discover commands in commands/ directory
+        commands_dir = package_path / 'commands'
+        if commands_dir.exists():
+            for cmd_file in commands_dir.rglob('*.md'):
+                rel_path = cmd_file.relative_to(commands_dir)
+                content['commands'].append(str(rel_path.with_suffix('')))
 
         return content
 
@@ -1204,18 +1192,35 @@ class WardenManager:
 
         return project_state
 
-    def sever_project(self, project_name: str, target: Optional[str] = None, rule_name: Optional[str] = None) -> ProjectState:
+    def sever_project(self, project_name: str, target: Optional[str] = None, rule_name: Optional[str] = None,
+                      skip_confirm: bool = False) -> ProjectState:
         """Convert symlinks to copies for project-specific modifications.
 
         Args:
             project_name: Name of the project
             target: Specific target to sever. If None, severs all targets.
             rule_name: Specific rule to sever (not yet implemented)
+            skip_confirm: Skip confirmation prompt
         """
         if project_name not in self.config.state['projects']:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
         project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+
+        # Ask for confirmation unless skipped
+        if not skip_confirm:
+            targets_to_check = [target] if target else list(project_state.targets.keys())
+            symlink_targets = [t for t in targets_to_check if project_state.targets[t]['install_type'] == 'symlink']
+
+            if symlink_targets:
+                print(f"\n[WARNING] About to sever project '{project_name}'")
+                print(f"   This will convert symlinks to copies for: {', '.join(symlink_targets)}")
+                print("   After severing, the project will NOT auto-update when central rules change")
+                print("   You will need to manually update or use 'warden project update' to sync changes")
+                response = input(f"\n   Sever '{project_name}'? [y/N]: ").strip().lower()
+                if response not in ['y', 'yes']:
+                    print(f"   Cancelled severing of '{project_name}'")
+                    raise WardenError("Operation cancelled by user")
 
         # Verify project path still exists
         if not project_state.path.exists():
@@ -1282,10 +1287,30 @@ class WardenManager:
             projects.append(ProjectState.from_dict(project_data))
         return projects
 
-    def remove_project(self, project_name: str) -> bool:
-        """Remove a project from tracking (does not delete files)."""
+    def remove_project(self, project_name: str, skip_confirm: bool = False) -> bool:
+        """Remove a project from tracking (does not delete files).
+
+        Args:
+            project_name: Name of the project to remove
+            skip_confirm: Skip confirmation prompt
+
+        Returns:
+            True if removed, False if not found
+        """
         if project_name not in self.config.state['projects']:
             return False
+
+        # Ask for confirmation unless skipped
+        if not skip_confirm:
+            project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+            print(f"\n[WARNING] About to remove project '{project_name}' from tracking")
+            print(f"   Path: {project_state.path}")
+            print(f"   Targets: {', '.join(project_state.targets.keys())}")
+            print("   Note: This will NOT delete any files, only stop tracking the project")
+            response = input(f"\n   Remove '{project_name}' from tracking? [y/N]: ").strip().lower()
+            if response not in ['y', 'yes']:
+                print(f"   Cancelled removal of '{project_name}'")
+                return False
 
         del self.config.state['projects'][project_name]
         self.config.save_state()
@@ -1458,22 +1483,80 @@ class WardenManager:
         return True
 
     def _create_claude_global_config(self, config_path: Path):
-        """Create Claude Desktop MCP configuration."""
-        config = {
-            "mcpServers": {
-                "warden-rules": {
-                    "command": "python",
-                    "args": [str(self.config.base_path / "warden_server.py")],
-                    "env": {
-                        "WARDEN_RULES_PATH": str(self.config.rules_path),
-                        "WARDEN_COMMANDS_PATH": str(self.config.commands_path)
-                    }
-                }
-            }
-        }
+        """Create or update Claude Code CLI global instructions file.
 
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=2)
+        This method preserves user's custom content in CLAUDE.md and only manages
+        the Agent Warden rules section using include directives.
+        """
+        claude_dir = config_path.parent
+        claude_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create the warden-rules.md file with all rules
+        warden_rules_path = claude_dir / 'warden-rules.md'
+        rules_content = self._generate_warden_rules_content()
+
+        with open(warden_rules_path, 'w') as f:
+            f.write(rules_content)
+
+        # Now update or create CLAUDE.md with the include directive
+        warden_include_line = f"@{warden_rules_path}"
+        warden_section_start = "# BEGIN AGENT WARDEN MANAGED SECTION"
+        warden_section_end = "# END AGENT WARDEN MANAGED SECTION"
+
+        if config_path.exists():
+            # Read existing CLAUDE.md
+            existing_content = config_path.read_text()
+
+            # Check if we already have a managed section
+            if warden_section_start in existing_content:
+                # Replace the managed section
+                import re
+                pattern = f"{re.escape(warden_section_start)}.*?{re.escape(warden_section_end)}"
+                managed_section = f"{warden_section_start}\n{warden_include_line}\n{warden_section_end}"
+                new_content = re.sub(pattern, managed_section, existing_content, flags=re.DOTALL)
+            else:
+                # Append the managed section at the end
+                managed_section = f"\n\n{warden_section_start}\n{warden_include_line}\n{warden_section_end}\n"
+                new_content = existing_content.rstrip() + managed_section
+
+            with open(config_path, 'w') as f:
+                f.write(new_content)
+        else:
+            # Create new CLAUDE.md with just the include directive
+            initial_content = f"""# Claude Code CLI Global Instructions
+
+This file contains global instructions for Claude Code CLI.
+You can add your own custom instructions above or below the Agent Warden section.
+
+{warden_section_start}
+{warden_include_line}
+{warden_section_end}
+"""
+            with open(config_path, 'w') as f:
+                f.write(initial_content)
+
+    def _generate_warden_rules_content(self) -> str:
+        """Generate the content for warden-rules.md file."""
+        content = f"""# Agent Warden Rules
+
+This file is automatically generated by Agent Warden.
+Do not edit manually - changes will be overwritten.
+
+Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Rules source: {self.config.base_path / 'rules'}
+
+---
+
+"""
+        # Add all available rules from the rules directory
+        rules_dir = self.config.base_path / 'rules'
+        if rules_dir.exists():
+            for rule_file in sorted(rules_dir.glob('*.mdc')):
+                rule_content = rule_file.read_text()
+                content += f"\n## Rule: {rule_file.stem}\n\n"
+                content += rule_content + "\n\n---\n"
+
+        return content
 
     def _create_windsurf_global_config(self, config_path: Path):
         """Create Windsurf global rules configuration."""
@@ -2023,7 +2106,7 @@ file = "~/.codex/warden.log"
 
     def update_project_items(self, project_name: str, rule_names: Optional[List[str]] = None,
                             command_names: Optional[List[str]] = None, update_all: bool = False,
-                            force: bool = False) -> Dict:
+                            force: bool = False, skip_confirm: bool = False, target: Optional[str] = None) -> Dict:
         """Update specific rules/commands or all outdated items in a project.
 
         Args:
@@ -2032,6 +2115,8 @@ file = "~/.codex/warden.log"
             command_names: Specific commands to update (None = none)
             update_all: Update all outdated items
             force: Force update even for conflicts without prompting
+            skip_confirm: Skip confirmation prompts (auto-answer yes)
+            target: Specific target to update (None = all targets)
         """
         if project_name not in self.config.state['projects']:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
@@ -2069,7 +2154,7 @@ file = "~/.codex/warden.log"
 
         # Handle conflicts for rules
         for rule_name in conflicts['rules']:
-            if not force:
+            if not force and not skip_confirm:
                 # Ask for confirmation
                 print(f"\n[CONFLICT] Rule '{rule_name}' has both source updates AND local modifications.")
                 print("   Updating will OVERWRITE your local changes.")
@@ -2078,13 +2163,18 @@ file = "~/.codex/warden.log"
                     updated['skipped'].append(rule_name)
                     print(f"   Skipped '{rule_name}'")
                     continue
+            elif not force and skip_confirm:
+                # Skip confirmation but don't force - skip conflicts
+                updated['skipped'].append(rule_name)
+                print(f"   Skipped '{rule_name}' (conflict, use --force to override)")
+                continue
 
             # Add to items to update
             items_to_update['rules'].append(rule_name)
 
         # Handle conflicts for commands
         for cmd_name in conflicts['commands']:
-            if not force:
+            if not force and not skip_confirm:
                 # Ask for confirmation
                 print(f"\n[CONFLICT] Command '{cmd_name}' has both source updates AND local modifications.")
                 print("   Updating will OVERWRITE your local changes.")
@@ -2093,16 +2183,28 @@ file = "~/.codex/warden.log"
                     updated['skipped'].append(cmd_name)
                     print(f"   Skipped '{cmd_name}'")
                     continue
+            elif not force and skip_confirm:
+                # Skip confirmation but don't force - skip conflicts
+                updated['skipped'].append(cmd_name)
+                print(f"   Skipped '{cmd_name}' (conflict, use --force to override)")
+                continue
 
             # Add to items to update
             items_to_update['commands'].append(cmd_name)
 
-        # Update rules across all targets
+        # Determine which targets to update
+        targets_to_update = [target] if target else list(project_state.targets.keys())
+
+        # Update rules across specified targets
         for rule_name in items_to_update['rules']:
             try:
-                # Find the rule info across all targets
+                # Find the rule info across specified targets
                 found = False
                 for target_name, target_config in project_state.targets.items():
+                    # Skip if not in targets to update
+                    if target_name not in targets_to_update:
+                        continue
+
                     rule_info = None
                     rule_index = None
                     for i, r in enumerate(target_config.get('installed_rules', [])):
@@ -2139,12 +2241,16 @@ file = "~/.codex/warden.log"
             except Exception as e:
                 updated['errors'].append(f"Error updating rule '{rule_name}': {e}")
 
-        # Update commands across all targets
+        # Update commands across specified targets
         for cmd_name in items_to_update['commands']:
             try:
-                # Find the command info across all targets
+                # Find the command info across specified targets
                 found = False
                 for target_name, target_config in project_state.targets.items():
+                    # Skip if not in targets to update
+                    if target_name not in targets_to_update:
+                        continue
+
                     cmd_info = None
                     cmd_index = None
                     for i, c in enumerate(target_config.get('installed_commands', [])):
@@ -2420,7 +2526,9 @@ Examples:
   %(prog)s project list
   %(prog)s project my-project          # Show project details
   %(prog)s project update my_project
+  %(prog)s project update my_project --target cursor  # Update only cursor target
   %(prog)s project update my_project --force  # Force update conflicts
+  %(prog)s project sever my_project --target augment  # Sever only augment target
   %(prog)s project rename old-name new-name
   %(prog)s project remove my_project
 
@@ -2441,8 +2549,16 @@ Examples:
   %(prog)s update-package user/repo
   %(prog)s list-packages
   %(prog)s search api
+
+  # Skip confirmations (for automation)
+  %(prog)s project remove my-project --yes
+  %(prog)s project update my-project --yes
         """
     )
+
+    # Global flags
+    parser.add_argument('--yes', '-y', action='store_true',
+                       help='Skip all confirmation prompts and use default answers')
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
@@ -2479,6 +2595,9 @@ Examples:
     # Project update command
     project_update_parser = project_subparsers.add_parser('update', help='Update project(s) with outdated rules/commands')
     project_update_parser.add_argument('project_name', nargs='?', help='Name of the project to update (omit to update all projects)')
+    project_update_parser.add_argument('--target', metavar='TARGET',
+                                       choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
+                                       help='Update only a specific target (default: all targets)')
     project_update_parser.add_argument('--rules', nargs='*', metavar='RULE', help='Update specific rules')
     project_update_parser.add_argument('--commands', nargs='*', metavar='COMMAND', help='Update specific commands')
     project_update_parser.add_argument('--dry-run', action='store_true', help='Show what would be updated without making changes')
@@ -2487,8 +2606,9 @@ Examples:
     # Project sever command
     project_sever_parser = project_subparsers.add_parser('sever', help='Convert symlinks to copies for modifications')
     project_sever_parser.add_argument('project_name', help='Name of the project to sever')
-    project_sever_parser.add_argument('rule_name', nargs='?', default='all',
-                                      help='Specific rule to sever (default: all)')
+    project_sever_parser.add_argument('--target', metavar='TARGET',
+                                      choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
+                                      help='Sever only a specific target (default: all targets)')
 
     # Project remove command
     project_remove_parser = project_subparsers.add_parser('remove', help='Remove project from tracking')
@@ -2782,6 +2902,7 @@ def main():
                         rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
                         command_names = args.commands if hasattr(args, 'commands') and args.commands is not None else None
                         force = args.force if hasattr(args, 'force') and args.force else False
+                        target = args.target if hasattr(args, 'target') and args.target else None
 
                         # Determine if updating all items or specific ones
                         update_all = not rule_names and not command_names
@@ -2790,6 +2911,8 @@ def main():
                             # Dry run for specific project
                             status = manager.check_project_status(args.project_name)
                             print(f"[DRY RUN] Would update project '{args.project_name}':\n")
+                            if target:
+                                print(f"  Target: {target}")
 
                             if status['outdated_rules']:
                                 print(f"  Rules to update: {', '.join([r['name'] for r in status['outdated_rules']])}")
@@ -2809,11 +2932,15 @@ def main():
                                 rule_names=rule_names,
                                 command_names=command_names,
                                 update_all=update_all,
-                                force=force
+                                force=force,
+                                skip_confirm=args.yes,
+                                target=target
                             )
 
                             if result['rules'] or result['commands']:
                                 print(f"[SUCCESS] Updated project '{args.project_name}':")
+                                if target:
+                                    print(f"   Target: {target}")
                                 if result['rules']:
                                     print(f"   Rules: {', '.join(result['rules'])}")
                                 if result['commands']:
@@ -2837,12 +2964,19 @@ def main():
                     return 1
 
             elif args.project_command == 'sever':
-                project = manager.sever_project(args.project_name, args.rule_name)
-                print(f"[SUCCESS] Successfully severed project '{project.name}'")
-                print("   Converted from symlink to copy")
+                try:
+                    target = args.target if hasattr(args, 'target') and args.target else None
+                    project = manager.sever_project(args.project_name, target=target, skip_confirm=args.yes)
+                    print(f"[SUCCESS] Successfully severed project '{project.name}'")
+                    if target:
+                        print(f"   Target: {target}")
+                    print("   Converted from symlink to copy")
+                except WardenError as e:
+                    print(f"[ERROR] {e}")
+                    return 1
 
             elif args.project_command == 'remove':
-                if manager.remove_project(args.project_name):
+                if manager.remove_project(args.project_name, skip_confirm=args.yes):
                     print(f"[SUCCESS] Removed project '{args.project_name}' from tracking")
                 else:
                     print(f"[ERROR] Project '{args.project_name}' not found")
@@ -2971,6 +3105,11 @@ def main():
                 global_path = manager.config.get_global_config_path(args.target)
                 print(f"[SUCCESS] Successfully installed global configuration for {args.target}")
                 print(f"   Configuration: {global_path}")
+
+                if args.target == 'claude':
+                    warden_rules_path = global_path.parent / 'warden-rules.md'
+                    print(f"   Rules file: {warden_rules_path}")
+                    print(f"   Note: Your custom instructions in {global_path.name} are preserved")
             except WardenError as e:
                 print(f"[ERROR] {e}")
                 return 1
@@ -3234,7 +3373,7 @@ def main():
                 status = "enabled" if new_value else "disabled"
                 print(f"[SUCCESS] Remote project updates {status}")
                 if not new_value:
-                    print("[INFO] Remote projects will be skipped in 'warden project update-all' and 'warden status' commands")
+                    print("[INFO] Remote projects will be skipped in 'warden project update' and 'warden status' commands")
                     print("[INFO] You can still update individual remote projects with 'warden project update <project-name>'")
             elif args.show:
                 # Show current configuration
