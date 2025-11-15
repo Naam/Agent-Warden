@@ -193,6 +193,8 @@ class WardenConfig:
                     # Add default values for new config options if missing
                     if 'update_remote_projects' not in config:
                         config['update_remote_projects'] = True
+                    if 'auto_update' not in config:
+                        config['auto_update'] = True
                     return config
             except (OSError, json.JSONDecodeError) as e:
                 print(f"Warning: Could not load config file: {e}")
@@ -201,7 +203,8 @@ class WardenConfig:
         return {
             'targets': self.TARGET_CONFIGS.copy(),
             'default_target': self.DEFAULT_TARGET,
-            'update_remote_projects': True  # Include remote projects in global updates by default
+            'update_remote_projects': True,  # Include remote projects in global updates by default
+            'auto_update': True  # Enable automatic updates by default
         }
 
     def _load_state(self) -> Dict:
@@ -2493,6 +2496,198 @@ file = "~/.codex/warden.log"
         return status
 
 
+class AutoUpdater:
+    """Handles automatic updates for Agent Warden."""
+
+    def __init__(self, config: WardenConfig):
+        self.config = config
+        self.repo_path = Path(__file__).parent.resolve()
+        self.script_path = Path(__file__).resolve()
+
+    def should_check_for_updates(self) -> bool:
+        """Check if we should check for updates based on frequency and config."""
+        # Check if auto-update is enabled
+        if not self.config.config.get('auto_update', True):
+            return False
+
+        # Check last update check time
+        last_check = self.config.state.get('last_update_check')
+        if last_check:
+            try:
+                last_check_time = datetime.fromisoformat(last_check)
+                time_since_check = datetime.now() - last_check_time
+                # Check once per day (24 hours)
+                if time_since_check.total_seconds() < 86400:
+                    return False
+            except (ValueError, TypeError):
+                # Invalid timestamp, proceed with check
+                pass
+
+        return True
+
+    def is_git_repository(self) -> bool:
+        """Check if the current directory is a git repository."""
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--git-dir'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    def is_git_clean(self) -> bool:
+        """Check if git working directory is clean."""
+        try:
+            result = subprocess.run(
+                ['git', 'status', '--porcelain'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return result.returncode == 0 and not result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    def is_system_wide_install(self) -> bool:
+        """Detect if running from system-wide installation vs repository."""
+        # If script is in site-packages or dist-packages, it's system-wide
+        script_str = str(self.script_path)
+        return 'site-packages' in script_str or 'dist-packages' in script_str
+
+    def check_for_updates(self) -> Optional[Dict]:
+        """Check if updates are available. Returns update info or None."""
+        if not self.is_git_repository():
+            return None
+
+        try:
+            # Fetch latest changes from remote
+            result = subprocess.run(
+                ['git', 'fetch', 'origin', 'main'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                # Silently fail on network errors
+                return None
+
+            # Get local commit hash
+            result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode != 0:
+                return None
+
+            local_hash = result.stdout.strip()
+
+            # Get remote commit hash
+            result = subprocess.run(
+                ['git', 'rev-parse', 'origin/main'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode != 0:
+                return None
+
+            remote_hash = result.stdout.strip()
+
+            # Check if we're behind
+            if local_hash == remote_hash:
+                return None
+
+            # Count commits behind
+            result = subprocess.run(
+                ['git', 'rev-list', '--count', f'{local_hash}..{remote_hash}'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            commits_behind = 0
+            if result.returncode == 0:
+                try:
+                    commits_behind = int(result.stdout.strip())
+                except ValueError:
+                    commits_behind = 0
+
+            return {
+                'local_hash': local_hash,
+                'remote_hash': remote_hash,
+                'commits_behind': commits_behind
+            }
+
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            # Silently fail on any errors
+            return None
+
+    def perform_update(self) -> bool:
+        """Perform the actual update. Returns True if successful."""
+        if not self.is_git_repository():
+            return False
+
+        if not self.is_git_clean():
+            print("[INFO] Skipping auto-update: git working directory has uncommitted changes")
+            return False
+
+        try:
+            print("\n[UPDATE] Updating Agent Warden...")
+
+            # Perform git pull --rebase
+            result = subprocess.run(
+                ['git', 'pull', '--rebase', 'origin', 'main'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
+            if result.returncode != 0:
+                print(f"[WARNING] Update failed: {result.stderr}")
+                return False
+
+            # If system-wide install, reinstall
+            if self.is_system_wide_install():
+                print("[UPDATE] Reinstalling system-wide package...")
+                result = subprocess.run(
+                    [sys.executable, '-m', 'pip', 'install', '--upgrade', '-e', str(self.repo_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+
+                if result.returncode != 0:
+                    print(f"[WARNING] Reinstall failed: {result.stderr}")
+                    return False
+
+            print("[SUCCESS] Agent Warden updated successfully!")
+            return True
+
+        except (subprocess.TimeoutExpired, Exception) as e:
+            print(f"[WARNING] Update failed: {e}")
+            return False
+
+    def update_last_check_time(self):
+        """Update the last update check timestamp."""
+        self.config.state['last_update_check'] = datetime.now().isoformat()
+        self.config.save_state()
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -2534,6 +2729,7 @@ Examples:
 
   # Configure default target
   %(prog)s config --set-default-target augment
+  %(prog)s config --auto-update false  # Disable automatic updates
   %(prog)s config --show
 
   # List available commands
@@ -2646,6 +2842,9 @@ Examples:
     config_parser.add_argument('--update-remote', metavar='BOOL',
                               choices=['true', 'false', 'yes', 'no', 'on', 'off'],
                               help='Enable/disable updating remote projects in global update commands')
+    config_parser.add_argument('--auto-update', metavar='BOOL',
+                              choices=['true', 'false', 'yes', 'no', 'on', 'off'],
+                              help='Enable/disable automatic updates of Agent Warden')
     config_parser.add_argument('--show', action='store_true',
                               help='Show current configuration')
 
@@ -2803,6 +3002,9 @@ def main():
         parser.print_help()
         return 1
 
+    # Track if we should perform update at exit
+    update_info = None
+
     try:
         # Check for WARDEN_HOME environment variable for testing/development
         warden_home = os.environ.get('WARDEN_HOME')
@@ -2811,6 +3013,18 @@ def main():
             manager = WardenManager(base_path=warden_home)
         else:
             manager = WardenManager()
+
+        # Check for updates (once per day, if enabled)
+        auto_updater = AutoUpdater(manager.config)
+        if auto_updater.should_check_for_updates():
+            update_info = auto_updater.check_for_updates()
+            auto_updater.update_last_check_time()
+
+            if update_info:
+                commits = update_info['commits_behind']
+                print(f"[INFO] Agent Warden update available ({commits} commit{'s' if commits != 1 else ''} behind)")
+                print("[INFO] Update will be applied after command completes")
+                print()
 
         if args.command == 'project':
             # Handle project subcommands
@@ -3375,11 +3589,28 @@ def main():
                 if not new_value:
                     print("[INFO] Remote projects will be skipped in 'warden project update' and 'warden status' commands")
                     print("[INFO] You can still update individual remote projects with 'warden project update <project-name>'")
+            elif args.auto_update:
+                # Set auto_update setting
+                value_map = {
+                    'true': True, 'yes': True, 'on': True,
+                    'false': False, 'no': False, 'off': False
+                }
+                new_value = value_map[args.auto_update.lower()]
+                manager.config.config['auto_update'] = new_value
+                manager.config.save_config()
+                status = "enabled" if new_value else "disabled"
+                print(f"[SUCCESS] Automatic updates {status}")
+                if not new_value:
+                    print("[INFO] Agent Warden will not check for or apply updates automatically")
+                    print("[INFO] You can manually update using: git pull --rebase")
+                else:
+                    print("[INFO] Agent Warden will check for updates once per day and apply them after commands complete")
             elif args.show:
                 # Show current configuration
                 print("Agent Warden Configuration:")
                 print(f"   Default Target: {manager.config.config['default_target']}")
                 print(f"   Update Remote Projects: {manager.config.config.get('update_remote_projects', True)}")
+                print(f"   Auto Update: {manager.config.config.get('auto_update', True)}")
                 print(f"   Base Path: {manager.config.base_path}")
                 print(f"   Rules Path: {manager.config.rules_path}")
                 print(f"   Commands Path: {manager.config.commands_path}")
@@ -3389,8 +3620,12 @@ def main():
                     supports_cmds = "✓" if config.get('supports_commands', False) else "✗"
                     print(f"   {target}: {supports_cmds} commands")
             else:
-                print("[ERROR] Must specify --set-default-target, --update-remote, or --show")
+                print("[ERROR] Must specify --set-default-target, --update-remote, --auto-update, or --show")
                 return 1
+
+        # Perform auto-update if available (after successful command execution)
+        if update_info:
+            auto_updater.perform_update()
 
         return 0
 

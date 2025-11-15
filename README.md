@@ -477,12 +477,46 @@ EOF
 
 ### Updating Agent Warden
 
-If you installed with pip in editable mode (`-e`), simply pull the latest changes:
+#### Automatic Updates (Default)
+
+Agent Warden automatically checks for updates once per day and applies them after your command completes successfully. This ensures you always have the latest features and bug fixes without manual intervention.
+
+**How it works:**
+- Checks for updates once per day when you run any command
+- Shows a notification if updates are available
+- Applies updates automatically after your command completes
+- Handles both repository and system-wide installations
+- Skips updates if git working directory has uncommitted changes
+- Fails gracefully on network errors without interrupting your work
+
+**Disable automatic updates:**
+
+```bash
+warden config --auto-update false
+```
+
+**Re-enable automatic updates:**
+
+```bash
+warden config --auto-update true
+```
+
+#### Manual Updates
+
+If you prefer to update manually or have disabled automatic updates:
 
 ```bash
 cd agent-warden
 git pull --rebase
 # The warden command will automatically use the updated code
+```
+
+For system-wide installations, you may need to reinstall after pulling:
+
+```bash
+cd agent-warden
+git pull --rebase
+pip install -e .
 ```
 
 ## Initial Setup
@@ -688,6 +722,9 @@ warden config --set-default-target augment
 # Enable/disable remote project updates in global commands
 warden config --update-remote false
 
+# Enable/disable automatic updates of Agent Warden
+warden config --auto-update false
+
 # Now installations will use augment by default
 warden install /path/to/project --rules coding-no-emoji
 ```
@@ -696,6 +733,7 @@ warden install /path/to/project --rules coding-no-emoji
 
 - **Default Target**: Set your preferred AI tool (cursor, augment, claude, windsurf, codex)
 - **Update Remote Projects**: Enable/disable updating remote projects in global `update` and `status` commands (default: true)
+- **Auto Update**: Enable/disable automatic updates of Agent Warden itself (default: true)
 - Configuration is saved to `.warden_config.json` (already in .gitignore)
 - Default target is `augment` if not configured
 
