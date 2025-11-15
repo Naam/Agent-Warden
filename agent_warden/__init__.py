@@ -31,6 +31,7 @@ from .hal import (
 
 # Import utilities
 from .utils import (
+    calculate_content_checksum,
     calculate_file_checksum,
     format_timestamp,
     get_file_info,
@@ -50,6 +51,7 @@ __all__ = [
     "FileOperationError",
     # Utilities
     "calculate_file_checksum",
+    "calculate_content_checksum",
     "parse_frontmatter",
     "strip_frontmatter",
     "format_timestamp",

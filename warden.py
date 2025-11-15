@@ -30,6 +30,7 @@ from agent_warden.hal import (
     convert_rule_format,
 )
 from agent_warden.utils import (
+    calculate_content_checksum,
     calculate_file_checksum,
     format_timestamp,
     process_command_template,
@@ -802,8 +803,6 @@ class WardenManager:
         dest_path = destination_dir / dest_filename
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        checksum = calculate_file_checksum(source_path)
-
         # Determine if this is a command file (vs a rule file)
         is_command = '/commands/' in str(destination_dir) or str(destination_dir).endswith('/commands')
 
@@ -813,10 +812,14 @@ class WardenManager:
             rules_dir = self.config.get_target_rules_path(target)
             processed_content = process_command_template(content, target, rules_dir)
             dest_path.write_text(processed_content)
+            # Store checksum of processed content, not template
+            checksum = calculate_content_checksum(processed_content)
         elif use_copy:
             self._copy_file(source_path, dest_path)
+            checksum = calculate_file_checksum(source_path)
         else:
             self._create_symlink(source_path, dest_path)
+            checksum = calculate_file_checksum(source_path)
 
         return {
             "name": command_spec,
@@ -856,8 +859,25 @@ class WardenManager:
         # Ensure parent directory exists
         backend.mkdir(destination_dir, parents=True, exist_ok=True)
 
-        # Calculate checksum from source
-        checksum = calculate_file_checksum(source_path)
+        # Determine if this is a command file (vs a rule file)
+        is_command = '/commands/' in destination_dir or destination_dir.endswith('/commands')
+
+        # Calculate checksum - use processed content checksum if template processing will occur
+        should_process = (
+            target is not None and
+            source_path.suffix == '.md' and
+            (isinstance(backend, RemoteBackend) or use_copy)
+        )
+
+        if should_process and is_command:
+            # For commands that will be template-processed, calculate checksum from processed content
+            content = source_path.read_text()
+            rules_dir = self.config.get_target_rules_path(target)
+            processed_content = process_command_template(content, target, rules_dir)
+            checksum = calculate_content_checksum(processed_content)
+        else:
+            # For non-processed files or rules, use source file checksum
+            checksum = calculate_file_checksum(source_path)
 
         # Install file using backend
         self._install_file_with_backend(source_path, dest_path, backend, use_copy, target)
@@ -2001,7 +2021,18 @@ file = "~/.codex/warden.log"
 
                 # Three-way comparison
                 stored_checksum = cmd_info['checksum']
-                source_checksum = calculate_file_checksum(source_path)
+
+                # For commands in copy mode, calculate checksum from processed template
+                # to match what was actually installed
+                use_copy = target_config.get('install_type') == 'copy'
+                if use_copy:
+                    content = source_path.read_text()
+                    rules_dir = self.config.get_target_rules_path(target_name)
+                    processed_content = process_command_template(content, target_name, rules_dir)
+                    source_checksum = calculate_content_checksum(processed_content)
+                else:
+                    source_checksum = calculate_file_checksum(source_path)
+
                 installed_checksum = calculate_file_checksum(dest_path)
 
                 source_changed = source_checksum != stored_checksum
@@ -2121,12 +2152,24 @@ file = "~/.codex/warden.log"
         if not dest_path.exists():
             raise WardenError(f"Installed file not found: {dest_path}")
 
-        # Read both files
+        # Read installed file
         with open(dest_path) as f:
             installed_lines = f.readlines()
 
-        with open(source_path) as f:
-            current_lines = f.readlines()
+        # Read source file - process template if it's a command in copy mode
+        target_config = project_state.targets.get(target_name)
+        use_copy = target_config.get('install_type') == 'copy'
+        is_command = item_info in target_config.get('installed_commands', [])
+
+        if use_copy and is_command:
+            # Process template to match what was installed
+            content = source_path.read_text()
+            rules_dir = self.config.get_target_rules_path(target_name)
+            processed_content = process_command_template(content, target_name, rules_dir)
+            current_lines = processed_content.splitlines(keepends=True)
+        else:
+            with open(source_path) as f:
+                current_lines = f.readlines()
 
         # Generate unified diff
         diff = difflib.unified_diff(
@@ -2306,11 +2349,22 @@ file = "~/.codex/warden.log"
                         updated['errors'].append(f"Source file not found for '{cmd_name}' in target '{target_name}': {source_path}")
                         continue
 
-                    # Copy the updated file
-                    shutil.copy2(source_path, dest_path)
+                    # Check if we need to process template (for commands in copy mode)
+                    use_copy = target_config.get('install_type') == 'copy'
+                    if use_copy:
+                        # Process template and write processed content
+                        content = source_path.read_text()
+                        rules_dir = self.config.get_target_rules_path(target_name)
+                        processed_content = process_command_template(content, target_name, rules_dir)
+                        dest_path.write_text(processed_content)
+                        # Calculate checksum from processed content
+                        new_checksum = calculate_content_checksum(processed_content)
+                    else:
+                        # For symlinks, just copy the file
+                        shutil.copy2(source_path, dest_path)
+                        new_checksum = calculate_file_checksum(source_path)
 
                     # Update checksum
-                    new_checksum = calculate_file_checksum(source_path)
                     target_config['installed_commands'][cmd_index]['checksum'] = new_checksum
                     target_config['installed_commands'][cmd_index]['installed_at'] = datetime.now(timezone.utc).isoformat()
 
@@ -3695,11 +3749,17 @@ def main():
                             continue
 
                         outdated_count = len(status.get('outdated_rules', [])) + len(status.get('outdated_commands', []))
+                        modified_count = len(status.get('user_modified_rules', [])) + len(status.get('user_modified_commands', []))
+                        conflict_count = len(status.get('conflict_rules', [])) + len(status.get('conflict_commands', []))
                         missing_count = len(status.get('missing_sources', []))
 
                         print(colored_status('UPDATE', f"{project_name}:"))
                         if outdated_count > 0:
                             print(f"   {outdated_count} outdated item(s)")
+                        if modified_count > 0:
+                            print(f"   {modified_count} user modified item(s)")
+                        if conflict_count > 0:
+                            print(f"   {conflict_count} conflict(s)")
                         if missing_count > 0:
                             print(f"   {missing_count} missing source(s)")
                         print()

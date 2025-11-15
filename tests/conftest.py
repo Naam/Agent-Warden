@@ -107,6 +107,28 @@ tags: ["test"]
 Test command.
 """)
 
+    # Add init-rules command with template variables for testing
+    init_rules_cmd = commands_dir / "init-rules.md"
+    init_rules_cmd.write_text("""---
+description: Initialize project rules
+tags: ["setup"]
+---
+
+# Initialize Project Rules
+
+This command helps you set up rules for your project.
+
+## Rules Directory
+
+The rules are located in: {{RULES_DIR}}
+
+{{PLATFORM_NOTES}}
+
+## Usage
+
+Run this command to initialize your project rules.
+""")
+
     return WardenManager(temp_dir)
 
 

@@ -22,6 +22,18 @@ def calculate_file_checksum(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 
+def calculate_content_checksum(content: str) -> str:
+    """Calculate SHA256 checksum of string content.
+
+    Args:
+        content: String content to checksum
+
+    Returns:
+        SHA256 hex digest of the content
+    """
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+
 def parse_frontmatter(content: str) -> tuple[dict, str]:
     """Parse YAML frontmatter from markdown content.
 
