@@ -47,6 +47,59 @@ from fs_backend import (
 )
 
 
+# Color codes for terminal output
+class Colors:
+    """ANSI color codes for terminal output."""
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    BLUE = '\033[0;34m'
+    MAGENTA = '\033[0;35m'
+    CYAN = '\033[0;36m'
+    NC = '\033[0m'  # No Color
+
+    @staticmethod
+    def colorize(text: str, color: str) -> str:
+        """Wrap text in color codes."""
+        return f"{color}{text}{Colors.NC}"
+
+
+def colored_status(status_type: str, message: str = "") -> str:
+    """Return a colored status message.
+
+    Args:
+        status_type: Type of status (SUCCESS, ERROR, WARNING, INFO, etc.)
+        message: Optional message to append after the status
+
+    Returns:
+        Colored status string
+    """
+    color_map = {
+        'SUCCESS': Colors.GREEN,
+        'ERROR': Colors.RED,
+        'WARNING': Colors.YELLOW,
+        'INFO': Colors.BLUE,
+        'UPDATE': Colors.CYAN,
+        'MODIFIED': Colors.YELLOW,
+        'CONFLICT': Colors.RED,
+        'OUTDATED': Colors.YELLOW,
+        'UP TO DATE': Colors.GREEN,
+        'MISSING SOURCE': Colors.RED,
+        'MISSING FILE': Colors.RED,
+        'TIP': Colors.CYAN,
+        'CHECK': Colors.BLUE,
+        'CELEBRATE': Colors.MAGENTA,
+        'PACKAGE': Colors.BLUE,
+    }
+
+    color = color_map.get(status_type, Colors.NC)
+    status_text = Colors.colorize(f"[{status_type}]", color)
+
+    if message:
+        return f"{status_text} {message}"
+    return status_text
+
+
 class WardenConfig:
     """Configuration management for Agent Warden targets and paths."""
 
@@ -3003,32 +3056,32 @@ def format_project_detailed(project: ProjectState, manager: 'WardenManager') -> 
 
 
 def get_item_status(item_name: str, item_type: str, status: Dict) -> str:
-    """Get status indicator for an item."""
+    """Get status indicator for an item with color."""
     # Check if item is in any status category
     if item_type == 'rule':
         if any(r['name'] == item_name for r in status.get('conflict_rules', [])):
-            return "[CONFLICT]"
+            return colored_status('CONFLICT')
         if any(r['name'] == item_name for r in status.get('user_modified_rules', [])):
-            return "[MODIFIED]"
+            return colored_status('MODIFIED')
         if any(r['name'] == item_name for r in status.get('outdated_rules', [])):
-            return "[OUTDATED]"
+            return colored_status('OUTDATED')
         if any(r['name'] == item_name for r in status.get('missing_sources', []) if r.get('type') == 'rule'):
-            return "[MISSING SOURCE]"
+            return colored_status('MISSING SOURCE')
         if any(r['name'] == item_name for r in status.get('missing_installed', []) if r.get('type') == 'rule'):
-            return "[MISSING FILE]"
+            return colored_status('MISSING FILE')
     else:  # command
         if any(c['name'] == item_name for c in status.get('conflict_commands', [])):
-            return "[CONFLICT]"
+            return colored_status('CONFLICT')
         if any(c['name'] == item_name for c in status.get('user_modified_commands', [])):
-            return "[MODIFIED]"
+            return colored_status('MODIFIED')
         if any(c['name'] == item_name for c in status.get('outdated_commands', [])):
-            return "[OUTDATED]"
+            return colored_status('OUTDATED')
         if any(c['name'] == item_name for c in status.get('missing_sources', []) if c.get('type') == 'command'):
-            return "[MISSING SOURCE]"
+            return colored_status('MISSING SOURCE')
         if any(c['name'] == item_name for c in status.get('missing_installed', []) if c.get('type') == 'command'):
-            return "[MISSING FILE]"
+            return colored_status('MISSING FILE')
 
-    return "[UP TO DATE]"
+    return colored_status('UP TO DATE')
 
 
 def main():
@@ -3119,7 +3172,7 @@ def main():
                         # Display results
                         if summary['updated']:
                             action = "Would update" if dry_run else "Updated"
-                            print(f"[SUCCESS] {action} {len(summary['updated'])} project(s):\n")
+                            print(colored_status('SUCCESS', f"{action} {len(summary['updated'])} project(s):\n"))
                             for project_name, items in summary['updated']:
                                 print(f"  📦 {project_name}:")
                                 if items['rules']:
@@ -3211,18 +3264,19 @@ def main():
                                 print(f"[INFO] No items updated for project '{args.project_name}'")
 
                             if result.get('skipped'):
-                                print(f"\n[INFO] Skipped {len(result['skipped'])} item(s) due to conflicts:")
+                                skipped_count = len(result['skipped'])
+                                print(f"\n{colored_status('INFO', f'Skipped {skipped_count} item(s) due to conflicts:')}")
                                 for item in result['skipped']:
                                     print(f"   • {item}")
                                 print("   Use --force to update conflicts")
 
                             if result['errors']:
-                                print("\n[WARNING] Errors encountered:")
+                                print(f"\n{colored_status('WARNING', 'Errors encountered:')}")
                                 for error in result['errors']:
                                     print(f"   • {error}")
 
                 except (ProjectNotFoundError, WardenError) as e:
-                    print(f"[ERROR] {e}")
+                    print(colored_status('ERROR', str(e)))
                     return 1
 
             elif args.project_command == 'sever':
@@ -3303,7 +3357,8 @@ def main():
 
                     # Display results
                     if summary['installed']:
-                        print(f"\n[SUCCESS] Installed to {len(summary['installed'])} project(s):\n")
+                        installed_count = len(summary['installed'])
+                        print(f"\n{colored_status('SUCCESS', f'Installed to {installed_count} project(s):')}\n")
                         for project_name, items in summary['installed']:
                             print(f"  📦 {project_name}:")
                             if items['rules']:
@@ -3313,15 +3368,16 @@ def main():
                             print()
 
                     if summary['errors']:
-                        print(f"\n[ERROR] Errors in {len(summary['errors'])} project(s):")
+                        error_count = len(summary['errors'])
+                        print(f"\n{colored_status('ERROR', f'Errors in {error_count} project(s):')}")
                         for project_name, error in summary['errors']:
                             print(f"  • {project_name}: {error}")
 
                     if not summary['installed'] and not summary['errors']:
-                        print("[INFO] No projects to install to")
+                        print(colored_status('INFO', 'No projects to install to'))
 
                 except WardenError as e:
-                    print(f"[ERROR] {e}")
+                    print(colored_status('ERROR', str(e)))
                     return 1
 
             else:
@@ -3339,7 +3395,7 @@ def main():
                     custom_name=custom_name
                 )
 
-                print(f"[SUCCESS] Successfully installed for project '{project.name}'")
+                print(colored_status('SUCCESS', f"Successfully installed for project '{project.name}'"))
                 targets_str = ', '.join(project.targets.keys())
                 print(f"   Targets: {targets_str}")
 
@@ -3396,7 +3452,7 @@ def main():
             try:
                 manager.install_global_config(args.target, args.force)
                 global_path = manager.config.get_global_config_path(args.target)
-                print(f"[SUCCESS] Successfully installed global configuration for {args.target}")
+                print(colored_status('SUCCESS', f"Successfully installed global configuration for {args.target}"))
                 print(f"   Configuration: {global_path}")
 
                 if args.target == 'claude':
@@ -3404,31 +3460,31 @@ def main():
                     print(f"   Rules file: {warden_rules_path}")
                     print(f"   Note: Your custom instructions in {global_path.name} are preserved")
             except WardenError as e:
-                print(f"[ERROR] {e}")
+                print(colored_status('ERROR', str(e)))
                 return 1
 
         elif args.command == 'add-package':
             try:
                 package = manager.install_package(args.package_spec, args.ref)
-                print(f"[CELEBRATE] Package '{package.name}' is ready to use!")
+                print(colored_status('CELEBRATE', f"Package '{package.name}' is ready to use!"))
                 print(f"   Use package commands with: {package.name}:command-name")
             except WardenError as e:
-                print(f"[ERROR] {e}")
+                print(colored_status('ERROR', str(e)))
                 return 1
 
         elif args.command == 'update-package':
             try:
                 package = manager.update_package(args.package_name, args.ref)
-                print(f"[CELEBRATE] Package '{package.name}' updated successfully!")
+                print(colored_status('CELEBRATE', f"Package '{package.name}' updated successfully!"))
             except WardenError as e:
-                print(f"[ERROR] {e}")
+                print(colored_status('ERROR', str(e)))
                 return 1
 
         elif args.command == 'remove-package':
             if manager.remove_package(args.package_name):
-                print(f"[SUCCESS] Package '{args.package_name}' removed successfully")
+                print(colored_status('SUCCESS', f"Package '{args.package_name}' removed successfully"))
             else:
-                print(f"[ERROR] Package '{args.package_name}' not found")
+                print(colored_status('ERROR', f"Package '{args.package_name}' not found"))
                 return 1
 
         elif args.command == 'list-packages':
@@ -3443,19 +3499,19 @@ def main():
                     status_map = manager.get_package_status()
 
                 for package in packages:
-                    status_icon = "[PACKAGE]"
+                    status_icon = colored_status('PACKAGE')
                     status_text = ""
 
                     if args.status and package.name in status_map:
                         status = status_map[package.name]
                         if status == 'up-to-date':
-                            status_icon = "[SUCCESS]"
+                            status_icon = colored_status('SUCCESS')
                             status_text = " (up-to-date)"
                         elif status == 'outdated':
-                            status_icon = "[UPDATE]"
+                            status_icon = colored_status('UPDATE')
                             status_text = " (update available)"
                         elif status == 'error':
-                            status_icon = "[ERROR]"
+                            status_icon = colored_status('ERROR')
                             status_text = " (error)"
                         elif status == 'missing':
                             status_icon = "❓"
@@ -3551,65 +3607,65 @@ def main():
                     ])
 
                     if not has_issues:
-                        print(f"[SUCCESS] Project '{args.project_name}' is up to date and unmodified")
+                        print(colored_status('SUCCESS', f"Project '{args.project_name}' is up to date and unmodified"))
                     else:
-                        print(f"[INFO] Status for project '{args.project_name}':\n")
+                        print(colored_status('INFO', f"Status for project '{args.project_name}':\n"))
 
                         if status['outdated_rules']:
-                            print(f"[UPDATE] Source updated - rules ({len(status['outdated_rules'])}):")
+                            print(colored_status('UPDATE', f"Source updated - rules ({len(status['outdated_rules'])}):"))
                             for rule in status['outdated_rules']:
                                 print(f"   • {rule['name']} (source has new version)")
                             print()
 
                         if status['outdated_commands']:
-                            print(f"[UPDATE] Source updated - commands ({len(status['outdated_commands'])}):")
+                            print(colored_status('UPDATE', f"Source updated - commands ({len(status['outdated_commands'])}):"))
                             for cmd in status['outdated_commands']:
                                 print(f"   • {cmd['name']} (source has new version)")
                             print()
 
                         if status['user_modified_rules']:
-                            print(f"[MODIFIED] User modified - rules ({len(status['user_modified_rules'])}):")
+                            print(colored_status('MODIFIED', f"User modified - rules ({len(status['user_modified_rules'])}):"))
                             for rule in status['user_modified_rules']:
                                 print(f"   • {rule['name']} (local changes detected)")
                             print()
 
                         if status['user_modified_commands']:
-                            print(f"[MODIFIED] User modified - commands ({len(status['user_modified_commands'])}):")
+                            print(colored_status('MODIFIED', f"User modified - commands ({len(status['user_modified_commands'])}):"))
                             for cmd in status['user_modified_commands']:
                                 print(f"   • {cmd['name']} (local changes detected)")
                             print()
 
                         if status['conflict_rules']:
-                            print(f"[CONFLICT] Both changed - rules ({len(status['conflict_rules'])}):")
+                            print(colored_status('CONFLICT', f"Both changed - rules ({len(status['conflict_rules'])}):"))
                             for rule in status['conflict_rules']:
                                 print(f"   • {rule['name']} (source updated AND user modified)")
                             print()
 
                         if status['conflict_commands']:
-                            print(f"[CONFLICT] Both changed - commands ({len(status['conflict_commands'])}):")
+                            print(colored_status('CONFLICT', f"Both changed - commands ({len(status['conflict_commands'])}):"))
                             for cmd in status['conflict_commands']:
                                 print(f"   • {cmd['name']} (source updated AND user modified)")
                             print()
 
                         if status['missing_sources']:
-                            print(f"[WARNING] Missing sources ({len(status['missing_sources'])}):")
+                            print(colored_status('WARNING', f"Missing sources ({len(status['missing_sources'])}):"))
                             for item in status['missing_sources']:
                                 print(f"   • {item['name']} ({item['type']}): {item['source']}")
                             print()
 
                         if status['missing_installed']:
-                            print(f"[WARNING] Missing installed files ({len(status['missing_installed'])}):")
+                            print(colored_status('WARNING', f"Missing installed files ({len(status['missing_installed'])}):"))
                             for item in status['missing_installed']:
                                 print(f"   • {item['name']} ({item['type']}): {item['dest']}")
                             print()
 
-                        print("[TIP] Use 'warden diff <project> <item>' to see changes")
+                        print(colored_status('TIP', "Use 'warden diff <project> <item>' to see changes"))
                         if status['outdated_rules'] or status['outdated_commands']:
-                            print("[TIP] Use 'warden project update <project> --all' to update outdated items")
+                            print(colored_status('TIP', "Use 'warden project update <project> --all' to update outdated items"))
                         if status['user_modified_rules'] or status['user_modified_commands']:
-                            print("[TIP] User modifications will be overwritten if you update")
+                            print(colored_status('TIP', "User modifications will be overwritten if you update"))
                         if status['conflict_rules'] or status['conflict_commands']:
-                            print("[WARNING] Conflicts require manual resolution - backup user changes first!")
+                            print(colored_status('WARNING', "Conflicts require manual resolution - backup user changes first!"))
 
                 except ProjectNotFoundError as e:
                     print(f"[ERROR] {e}")
@@ -3629,26 +3685,26 @@ def main():
                         print("      → Enable with: warden config --update-remote true\n")
 
                 if not all_status:
-                    print("[SUCCESS] All projects are up to date")
+                    print(colored_status('SUCCESS', 'All projects are up to date'))
                 else:
-                    print(f"[INFO] Found {len(all_status)} project(s) with updates:\n")
+                    print(colored_status('INFO', f"Found {len(all_status)} project(s) with updates:\n"))
 
                     for project_name, status in all_status.items():
                         if 'error' in status:
-                            print(f"[ERROR] {project_name}: {status['error']}")
+                            print(colored_status('ERROR', f"{project_name}: {status['error']}"))
                             continue
 
                         outdated_count = len(status.get('outdated_rules', [])) + len(status.get('outdated_commands', []))
                         missing_count = len(status.get('missing_sources', []))
 
-                        print(f"[UPDATE] {project_name}:")
+                        print(colored_status('UPDATE', f"{project_name}:"))
                         if outdated_count > 0:
                             print(f"   {outdated_count} outdated item(s)")
                         if missing_count > 0:
                             print(f"   {missing_count} missing source(s)")
                         print()
 
-                    print("[TIP] Use 'warden status <project>' for details")
+                    print(colored_status('TIP', "Use 'warden status <project>' for details"))
 
         elif args.command == 'diff':
             try:

@@ -202,7 +202,7 @@ class TestGetItemStatus:
         }
 
         result = get_item_status('test-rule', 'rule', status)
-        assert result == "[UP TO DATE]"
+        assert "[UP TO DATE]" in result
 
     def test_get_item_status_outdated(self):
         """Test item status when outdated."""
@@ -215,7 +215,7 @@ class TestGetItemStatus:
         }
 
         result = get_item_status('test-rule', 'rule', status)
-        assert result == "[OUTDATED]"
+        assert "[OUTDATED]" in result
 
     def test_get_item_status_modified(self):
         """Test item status when user modified."""
@@ -228,7 +228,7 @@ class TestGetItemStatus:
         }
 
         result = get_item_status('test-rule', 'rule', status)
-        assert result == "[MODIFIED]"
+        assert "[MODIFIED]" in result
 
     def test_get_item_status_conflict(self):
         """Test item status when in conflict."""
@@ -241,5 +241,5 @@ class TestGetItemStatus:
         }
 
         result = get_item_status('test-rule', 'rule', status)
-        assert result == "[CONFLICT]"
+        assert "[CONFLICT]" in result
 
