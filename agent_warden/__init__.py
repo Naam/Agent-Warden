@@ -35,6 +35,7 @@ from .utils import (
     format_timestamp,
     get_file_info,
     parse_frontmatter,
+    process_command_template,
     strip_frontmatter,
 )
 
@@ -53,6 +54,7 @@ __all__ = [
     "strip_frontmatter",
     "format_timestamp",
     "get_file_info",
+    "process_command_template",
     # HAL
     "AgentConverter",
     "CursorConverter",

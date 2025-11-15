@@ -32,6 +32,7 @@ from agent_warden.hal import (
 from agent_warden.utils import (
     calculate_file_checksum,
     format_timestamp,
+    process_command_template,
 )
 from fs_backend import (
     BackendError,
@@ -730,7 +731,7 @@ class WardenManager:
         except FileNotFoundError:
             return 1, "", "Git not found. Please install git."
 
-    def _install_command(self, command_spec: str, destination_dir: Path, use_copy: bool) -> Dict:
+    def _install_command(self, command_spec: str, destination_dir: Path, use_copy: bool, target: str = None) -> Dict:
         """Install a specific command or rule to the destination (local only). Returns installation info with checksum."""
         try:
             source_path, source_type = self._resolve_command_path(command_spec)
@@ -750,7 +751,16 @@ class WardenManager:
 
         checksum = calculate_file_checksum(source_path)
 
-        if use_copy:
+        # Determine if this is a command file (vs a rule file)
+        is_command = '/commands/' in str(destination_dir) or str(destination_dir).endswith('/commands')
+
+        # Process template if copying a command file with a target specified
+        if use_copy and is_command and target:
+            content = source_path.read_text()
+            rules_dir = self.config.get_target_rules_path(target)
+            processed_content = process_command_template(content, target, rules_dir)
+            dest_path.write_text(processed_content)
+        elif use_copy:
             self._copy_file(source_path, dest_path)
         else:
             self._create_symlink(source_path, dest_path)
@@ -869,25 +879,37 @@ class WardenManager:
             target: Target assistant (e.g., 'claude', 'augment', 'cursor')
         """
         try:
-            # Check if we need to convert the rule format for the target
-            # Only convert .md rule files when copying (not symlinking)
-            should_convert = (
+            # Determine if this is a command file (vs a rule file)
+            is_command = '/commands/' in dest_path or dest_path.endswith('/commands')
+
+            # Check if we need to process the file content
+            # Process when: copying (not symlinking) and target is specified
+            should_process = (
                 target is not None and
                 source_path.suffix == '.md' and
                 (isinstance(backend, RemoteBackend) or use_copy)
             )
 
-            if should_convert:
-                # Read source file and convert format for target
+            if should_process:
+                # Read source file
                 content = source_path.read_text()
-                converted_content = convert_rule_format(content, target)
 
-                # Write converted content to destination
+                # Process based on file type
+                if is_command:
+                    # For commands: process template variables
+                    # Determine rules directory path for this target
+                    rules_dir = self.config.get_target_rules_path(target)
+                    processed_content = process_command_template(content, target, rules_dir)
+                else:
+                    # For rules: convert format for target
+                    processed_content = convert_rule_format(content, target)
+
+                # Write processed content to destination
                 if isinstance(backend, RemoteBackend):
                     # For remote, we need to write to a temp file first
                     import tempfile
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md') as tmp:
-                        tmp.write(converted_content)
+                        tmp.write(processed_content)
                         tmp_path = tmp.name
                     try:
                         backend.copy_file(tmp_path, dest_path)
@@ -895,7 +917,7 @@ class WardenManager:
                         Path(tmp_path).unlink()
                 else:
                     # For local, write directly
-                    Path(dest_path).write_text(converted_content)
+                    Path(dest_path).write_text(processed_content)
             elif isinstance(backend, RemoteBackend):
                 # Remote always uses copy
                 backend.copy_file(str(source_path), dest_path)
@@ -1381,7 +1403,7 @@ class WardenManager:
                         print(f"[INFO] Rule '{rule_name}' is already installed for target '{target_name}', skipping")
                         continue
 
-                    install_info = self._install_command(rule_name, rules_destination, use_copy)
+                    install_info = self._install_command(rule_name, rules_destination, use_copy, target_name)
                     target_config['installed_rules'].append(install_info)
                     target_config['has_rules'] = True
 
@@ -1401,7 +1423,7 @@ class WardenManager:
                         print(f"[INFO] Command '{command_name}' is already installed for target '{target_name}', skipping")
                         continue
 
-                    install_info = self._install_command(command_name, commands_destination, use_copy)
+                    install_info = self._install_command(command_name, commands_destination, use_copy, target_name)
                     target_config['installed_commands'].append(install_info)
                     target_config['has_commands'] = True
 

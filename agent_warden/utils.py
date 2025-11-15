@@ -135,3 +135,49 @@ def get_file_info(file_path: Path, source_type: str = "unknown") -> Dict:
         "installed_at": datetime.now(timezone.utc).isoformat()
     }
 
+
+def process_command_template(content: str, target: str, rules_dir: str) -> str:
+    """Process command template by replacing placeholders with target-specific values.
+
+    Args:
+        content: Command file content with template placeholders
+        target: Target assistant ('augment', 'cursor', 'claude', 'windsurf', 'codex')
+        rules_dir: Path to the rules directory for this target
+
+    Returns:
+        Processed content with placeholders replaced
+    """
+    # Define platform-specific notes
+    platform_notes = {
+        'augment': """This project uses **Augment** as the AI coding assistant.
+- Rules are located in `.augment/rules/`
+- Commands are located in `.augment/commands/`
+- Both rules and commands use Markdown format""",
+
+        'cursor': """This project uses **Cursor** as the AI coding assistant.
+- Rules are located in `.cursor/rules/`
+- Cursor uses a rules-based system where all files in the rules directory are automatically loaded
+- Commands are also stored in `.cursor/rules/` alongside rules""",
+
+        'claude': """This project uses **Claude Code** as the AI coding assistant.
+- Rules are located in `.claude/rules/`
+- Commands are located in `.claude/commands/`
+- May also reference global rules from `~/.claude/warden-rules.md`""",
+
+        'windsurf': """This project uses **Windsurf** as the AI coding assistant.
+- Rules are located in `.windsurf/rules/`
+- Commands are located in `.windsurf/commands/`
+- May also reference global rules from `~/.codeium/windsurf/memories/global_rules.md`""",
+
+        'codex': """This project uses **Codex** as the AI coding assistant.
+- Rules are located in `.codex/rules/`
+- Commands are located in `.codex/commands/`
+- Additional configuration may be in `.codex/config.toml`"""
+    }
+
+    # Replace template variables
+    processed = content.replace('{{RULES_DIR}}', rules_dir)
+    processed = processed.replace('{{PLATFORM_NOTES}}', platform_notes.get(target, ''))
+
+    return processed
+
