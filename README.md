@@ -179,13 +179,34 @@ warden project remove my-remote-project
 ### Requirements
 
 - **SSH client** installed (`ssh`, `scp`, `rsync`)
-- **SSH access** configured to remote machine
+- **SSH access** configured to remote machine (via `~/.ssh/config` or SSH keys)
 - **Write permissions** on remote project directory
 - **Network connectivity** to remote machine
+- **Note:** Remote machine does NOT need Agent Warden installed
+
+### File Transfer Details
+
+Agent Warden uses intelligent file transfer:
+
+1. **Preferred method: `rsync`**
+   - Efficient delta transfers (only changed parts)
+   - Preserves timestamps and permissions
+   - Atomic operations with checksums
+   - Compression for large files
+
+2. **Fallback method: `scp`**
+   - Used if `rsync` is not available on remote
+   - Full file transfers
+   - Still reliable and secure
+
+3. **Copy mode only**
+   - Remote installations always use copy mode
+   - Symlinks cannot span SSH connections
+   - Files are fully copied to remote machine
 
 ### Controlling Remote Updates
 
-By default, global update commands (`warden project update-all` and `warden status`) include remote projects. You can disable this if you have remote projects that require password authentication or are temporarily unavailable:
+By default, global update commands (`warden project update` and `warden status`) include remote projects. You can disable this if you have remote projects that require password authentication or are temporarily unavailable:
 
 ```bash
 # Disable remote project updates in global commands
@@ -195,7 +216,7 @@ warden config --update-remote false
 warden status
 
 # Update all projects (will skip remote projects)
-warden project update-all
+warden project update
 
 # Re-enable remote project updates
 warden config --update-remote true
@@ -237,13 +258,15 @@ warden install user@server:/path --target augment --rules test-rule
 
 ## Supported AI Coding Assistants
 
-| Assistant | Rules Support | Commands Support | Config Path |
-|-----------|--------------|------------------|-------------|
-| **Cursor** | ✅ `.cursor/rules/` | ❌ | Project-level |
-| **Augment** | ✅ `.augment/rules/` | ✅ `.augment/commands/` | Project-level |
-| **Claude Code** | ✅ `.claude/rules/` | ✅ `.claude/commands/` | Project + Global |
-| **Windsurf** | ✅ `.windsurf/rules/` | ❌ | Project + Global |
-| **Codex** | ✅ `.codex/rules/` | ✅ `.codex/commands/` | Project + Global |
+| Assistant | Rules Support | Commands Support | Config Path | Notes |
+|-----------|--------------|------------------|-------------|-------|
+| **Cursor** | ✅ `.cursor/rules/` | ❌ | Project-level | Supports symlinks |
+| **Augment** | ✅ `.augment/rules/` | ✅ `.augment/commands/` | Project-level | **Copy mode only** |
+| **Claude Code** | ✅ `.claude/rules/` | ✅ `.claude/commands/` | Project + Global | Supports symlinks |
+| **Windsurf** | ✅ `.windsurf/rules/` | ❌ | Project + Global | Supports symlinks |
+| **Codex** | ✅ `.codex/rules/` | ✅ `.codex/commands/` | Project + Global | Supports symlinks |
+
+**Note**: Augment always uses copy mode because its file watching system doesn't follow symlinks. This is handled automatically by Agent Warden.
 
 ## Important: Meta-Rules vs Project Rules
 
@@ -413,7 +436,7 @@ EOF
 
 ### Advanced Features
 
-- **Global Configuration**: Install system-wide configs for Claude Desktop, Windsurf, and Codex
+- **Global Configuration**: Install system-wide configs for Claude Code CLI, Windsurf, and Codex
 - **Conflict Detection**: Three-way merge detection (source changed, user modified, or both)
 - **Change Tracking**: See exactly what changed before updating rules
 - **Flexible Installation**: Install rules only, commands only, or both together
@@ -464,11 +487,11 @@ git pull --rebase
 
 ## Initial Setup
 
-The script automatically:
+After installation, Agent Warden automatically:
 
-1. Downloads the MDC rules file from the specified URL
-2. Initializes a git repository to track changes
-3. Creates configuration and state files
+1. Creates configuration and state files in the installation directory
+2. Initializes directories for rules, commands, and packages
+3. Loads the included `mdc.mdc` meta-rule file
 
 ## Usage
 
@@ -541,7 +564,49 @@ warden project remove my-project
 
 # Convert symlinks to copies for project-specific modifications
 warden project sever my-project
+
+# Sever only a specific target in a multi-target project
+warden project sever my-project --target cursor
+
+# Update only a specific target in a multi-target project
+warden project update my-project --target augment
 ```
+
+### Multi-Target Projects
+
+Agent Warden supports installing rules and commands for multiple AI assistants in the same project. Each target is managed independently:
+
+```bash
+# Install to multiple targets at once
+warden install /path/to/project --target cursor,augment --rules coding-no-emoji
+
+# Or configure default targets for a project
+warden project configure my-project --targets cursor augment claude
+
+# Now installations apply to all configured targets
+warden install --project my-project --rules git-commit
+# Installs to cursor, augment, and claude
+
+# Each target can have different rules
+warden install --project my-project --target cursor --rules cursor-specific-rule
+warden install --project my-project --target augment --rules augment-specific-rule
+
+# Update only one target
+warden project update my-project --target cursor
+
+# Sever only one target (others remain as symlinks)
+warden project sever my-project --target augment
+
+# Check status shows all targets
+warden status
+```
+
+**Multi-Target Behavior:**
+- Each target stores its own files independently (`.cursor/rules/`, `.augment/rules/`, etc.)
+- Severing one target doesn't affect others
+- You can have different rules installed for different targets
+- Updates can be applied to all targets or specific ones
+- Storage: Each target maintains its own copies/symlinks
 
 ### Manage Commands
 
@@ -585,7 +650,7 @@ warden search api-design
 ### System-wide Configuration
 
 ```bash
-# Install global configuration for Claude Desktop
+# Install global configuration for Claude Code CLI
 warden global-install claude
 
 # Install global configuration for Windsurf
@@ -604,8 +669,9 @@ warden status
 # Check status of specific project
 warden status my-project
 
-# Show differences between source and installed files
-warden diff my-project
+# Show differences between source and installed files for a specific rule/command
+warden diff my-project coding-no-emoji
+warden diff my-project code-review
 ```
 
 ### Configuration
@@ -619,6 +685,9 @@ warden config --show
 # Set default target (used when --target is not specified)
 warden config --set-default-target augment
 
+# Enable/disable remote project updates in global commands
+warden config --update-remote false
+
 # Now installations will use augment by default
 warden install /path/to/project --rules coding-no-emoji
 ```
@@ -626,6 +695,7 @@ warden install /path/to/project --rules coding-no-emoji
 **Configuration options:**
 
 - **Default Target**: Set your preferred AI tool (cursor, augment, claude, windsurf, codex)
+- **Update Remote Projects**: Enable/disable updating remote projects in global `update` and `status` commands (default: true)
 - Configuration is saved to `.warden_config.json` (already in .gitignore)
 - Default target is `augment` if not configured
 
@@ -643,7 +713,7 @@ The script supports multiple AI development tools with their specific configurat
 
 ### System-wide Configurations
 
-- **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+- **Claude Code CLI**: `~/.claude/CLAUDE.md` (with rules in `~/.claude/warden-rules.md`)
 - **Windsurf**: `~/.codeium/windsurf/memories/global_rules.md`
 - **Codex**: `~/.codex/config.toml`
 
@@ -657,30 +727,33 @@ The script supports multiple AI development tools with their specific configurat
 ```
 agent-warden/
 ├── warden.py               # Main script
+├── fs_backend.py           # File system backend (local and remote SSH)
 ├── mdc.mdc                 # Meta-rule defining MDC format (not for projects)
-├── rules/                  # Rules directory
-│   └── example/            # Example rules (tracked in git)
-│       ├── coding-no-emoji.mdc # No emojis in code rule
-│       └── git-commit.mdc      # Git commit standards
-├── commands/               # Commands directory
-│   └── example/            # Example commands (tracked in git)
-│       ├── code-review.md  # Code review command
-│       ├── test-gen.md     # Test generation command
-│       ├── refactor.md     # Refactoring command
-│       └── api-design.md   # API design command
+├── rules/                  # Built-in rules directory
+│   ├── coding-no-emoji.mdc # No emojis in code rule
+│   ├── git-commit.mdc      # Git commit standards
+│   ├── documentation.mdc   # Documentation standards
+│   └── example/            # Example rules subdirectory (optional)
+├── commands/               # Built-in commands directory
+│   ├── code-review.md      # Code review command
+│   ├── test-gen.md         # Test generation command
+│   ├── refactor.md         # Refactoring command
+│   ├── api-design.md       # API design command
+│   └── example/            # Example commands subdirectory (optional)
 ├── packages/               # Downloaded GitHub packages (gitignored)
 │   └── .gitkeep            # Keeps directory in git
 ├── .warden_config.json     # Configuration file (gitignored)
 ├── .warden_state.json      # State tracking file (gitignored)
 ├── tests/                  # Test suite
+├── pyproject.toml          # Python package configuration
 ├── update-warden.sh        # Update script
 └── README.md               # This documentation
 
 Notes:
-- User-created rules and commands in rules/ and commands/ are gitignored
-- Only the example/ subdirectories are tracked
+- Built-in rules and commands are in the root rules/ and commands/ directories
+- User-created rules and commands can be added to these directories
 - The packages/ directory and all its contents are gitignored
-- Users have full control over packages without risking commits to the repo
+- Configuration and state files are gitignored
 ```
 
 ## Available Commands
@@ -804,16 +877,29 @@ warden list-packages --status
 - **Pros**: Automatic updates when central rules/commands change
 - **Cons**: Cannot make project-specific modifications
 - **Use case**: Projects that should always use the latest rules and commands
+- **Supported targets**: Cursor, Claude, Windsurf, Codex
 
 ### Copies
 
 - **Pros**: Can be modified for project-specific needs
 - **Cons**: Must be manually updated
 - **Use case**: Projects requiring customized rules or commands
+- **Required for**: Augment (does not support symlinks), Remote installations (via SSH)
+
+### Target-Specific Behavior
+
+**Augment**: Always uses copies, even if you don't specify `--copy`. This is because Augment's file watching system doesn't follow symlinks. The tool will automatically use copy mode and notify you:
+
+```bash
+warden install /path/to/project --target augment --rules coding-no-emoji
+# Output: [INFO] Augment target requires file copies (symlinks not supported)
+```
+
+**Remote installations**: Always use copies regardless of target, since symlinks cannot span SSH connections.
 
 ## State Management
 
-The script maintains state in `.mdc_state.json` with information about:
+The script maintains state in `.warden_state.json` with information about:
 
 - Project name and path
 - Target configuration used
@@ -835,25 +921,25 @@ The script provides comprehensive error handling for:
 
 ```bash
 # Install rules and commands to an Augment project
-warden install ~/projects/my-app --target augment --commands
+warden install ~/projects/my-app --target augment --rules coding-no-emoji --commands code-review
 
-# Install only specific commands to a Cursor project
-warden install ~/projects/cursor-app --target cursor --no-rules --commands code-review
+# Install only specific commands to a Cursor project (omit --rules to skip rules)
+warden install ~/projects/cursor-app --target cursor --commands code-review
 
 # List all projects with detailed information
-warden list --verbose
+warden project list --verbose
 
 # Later, convert to copy for customization
-warden sever my-app
+warden project sever my-app
 
 # Update the project with latest rules and commands
-warden update my-app
+warden project update my-app
 ```
 
 ### Advanced Workflows
 
 ```bash
-# Set up global configuration for Claude Desktop
+# Set up global configuration for Claude Code CLI
 warden global-install claude
 
 # Install comprehensive development setup
