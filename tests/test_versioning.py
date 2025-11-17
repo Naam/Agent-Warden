@@ -317,7 +317,7 @@ class TestVersioning:
         uptodate_file.write_text(rule_file.read_text())
         # Update checksum in state
         uptodate_state = manager.config.state['projects'][uptodate.name]
-        from warden import calculate_file_checksum
+        from agent_warden.utils import calculate_file_checksum
         new_checksum = calculate_file_checksum(rule_file)
         uptodate_state['targets']['augment']['installed_rules'][0]['checksum'] = new_checksum
         manager.config.save_state()

@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from warden import GitHubPackage
+from agent_warden.package import GitHubPackage
 
 
 class TestGitHubPackage:

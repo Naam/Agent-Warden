@@ -15,14 +15,14 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
-from warden import (
-    GitHubPackage,
+from agent_warden.exceptions import (
     InvalidTargetError,
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
     WardenError,
-    WardenManager,
 )
+from agent_warden.manager import WardenManager
+from agent_warden.package import GitHubPackage
 
 
 class TestConfigLoadingErrors:

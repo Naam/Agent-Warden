@@ -6,7 +6,9 @@ from typing import Generator
 
 import pytest
 
-from warden import GitHubPackage, WardenConfig, WardenManager
+from agent_warden.config import WardenConfig
+from agent_warden.manager import WardenManager
+from agent_warden.package import GitHubPackage
 
 
 @pytest.fixture
