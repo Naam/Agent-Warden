@@ -26,7 +26,11 @@ from agent_warden.exceptions import (
     ProjectNotFoundError,
     WardenError,
 )
-from agent_warden.formatting import colored_status
+from agent_warden.formatting import (
+    colored_status,
+    format_project_detailed,
+    format_project_info,
+)
 from agent_warden.hal import (
     convert_rule_format,
 )
@@ -35,7 +39,6 @@ from agent_warden.project import ProjectState
 from agent_warden.utils import (
     calculate_content_checksum,
     calculate_file_checksum,
-    format_timestamp,
     process_command_template,
 )
 from fs_backend import (
@@ -2565,104 +2568,6 @@ Examples:
     diff_parser.add_argument('item_name', help='Rule or command name')
 
     return parser
-
-
-def format_project_info(project: ProjectState, verbose: bool = False) -> str:
-    """Format project information for display."""
-    target_names = list(project.targets.keys())
-    targets_str = ', '.join(target_names) if target_names else 'none'
-
-    info = (f"📦 {project.name}\n"
-            f"   Path: {project.path}\n"
-            f"   Targets: {targets_str}")
-
-    if verbose:
-        for target_name, target_config in project.targets.items():
-            status_icon = "🔗" if target_config['install_type'] == 'symlink' else "📁"
-            info += f"\n   {status_icon} {target_name}:"
-            info += f"\n      Type: {target_config['install_type']}"
-            info += f"\n      Rules: {'✓' if target_config.get('has_rules') else '✗'}"
-            info += f"\n      Commands: {'✓' if target_config.get('has_commands') else '✗'}"
-
-            if target_config.get('has_commands') and target_config.get('installed_commands'):
-                cmd_names = [c['name'] if isinstance(c, dict) else c for c in target_config['installed_commands']]
-                info += f"\n      Installed Commands: {', '.join(cmd_names)}"
-
-    info += f"\n   Updated: {format_timestamp(project.timestamp)}"
-    return info
-
-
-def format_project_detailed(project: ProjectState, manager: 'WardenManager') -> str:
-    """Format detailed project information with status of installed items."""
-    target_names = list(project.targets.keys())
-    targets_str = ', '.join(target_names) if target_names else 'none'
-
-    info = (f"📦 {project.name}\n"
-            f"   Path: {project.path}\n"
-            f"   Targets: {targets_str}\n")
-
-    if project.default_targets:
-        info += f"   Default Targets: {', '.join(project.default_targets)}\n"
-
-    info += f"   Updated: {format_timestamp(project.timestamp)}\n"
-
-    # Get status for the project
-    try:
-        status = manager.check_project_status(project.name)
-
-        # Display each target
-        for target_name, target_config in project.targets.items():
-            status_icon = "🔗" if target_config['install_type'] == 'symlink' else "📁"
-            info += f"\n   {status_icon} {target_name} ({target_config['install_type']}):\n"
-
-            # Display rules
-            if target_config.get('has_rules') and target_config.get('installed_rules'):
-                info += f"      Rules ({len(target_config['installed_rules'])}):\n"
-                for rule_info in target_config['installed_rules']:
-                    rule_name = rule_info['name'] if isinstance(rule_info, dict) else rule_info
-                    rule_status = get_item_status(rule_name, 'rule', status)
-                    info += f"         • {rule_name} {rule_status}\n"
-
-            # Display commands
-            if target_config.get('has_commands') and target_config.get('installed_commands'):
-                info += f"      Commands ({len(target_config['installed_commands'])}):\n"
-                for cmd_info in target_config['installed_commands']:
-                    cmd_name = cmd_info['name'] if isinstance(cmd_info, dict) else cmd_info
-                    cmd_status = get_item_status(cmd_name, 'command', status)
-                    info += f"         • {cmd_name} {cmd_status}\n"
-    except Exception as e:
-        info += f"\n   [WARNING] Could not retrieve status: {e}\n"
-
-    return info
-
-
-def get_item_status(item_name: str, item_type: str, status: Dict) -> str:
-    """Get status indicator for an item with color."""
-    # Check if item is in any status category
-    if item_type == 'rule':
-        if any(r['name'] == item_name for r in status.get('conflict_rules', [])):
-            return colored_status('CONFLICT')
-        if any(r['name'] == item_name for r in status.get('user_modified_rules', [])):
-            return colored_status('MODIFIED')
-        if any(r['name'] == item_name for r in status.get('outdated_rules', [])):
-            return colored_status('OUTDATED')
-        if any(r['name'] == item_name for r in status.get('missing_sources', []) if r.get('type') == 'rule'):
-            return colored_status('MISSING SOURCE')
-        if any(r['name'] == item_name for r in status.get('missing_installed', []) if r.get('type') == 'rule'):
-            return colored_status('MISSING FILE')
-    else:  # command
-        if any(c['name'] == item_name for c in status.get('conflict_commands', [])):
-            return colored_status('CONFLICT')
-        if any(c['name'] == item_name for c in status.get('user_modified_commands', [])):
-            return colored_status('MODIFIED')
-        if any(c['name'] == item_name for c in status.get('outdated_commands', [])):
-            return colored_status('OUTDATED')
-        if any(c['name'] == item_name for c in status.get('missing_sources', []) if c.get('type') == 'command'):
-            return colored_status('MISSING SOURCE')
-        if any(c['name'] == item_name for c in status.get('missing_installed', []) if c.get('type') == 'command'):
-            return colored_status('MISSING FILE')
-
-    return colored_status('UP TO DATE')
 
 
 def main():

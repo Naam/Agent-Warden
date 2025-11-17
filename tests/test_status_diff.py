@@ -193,7 +193,7 @@ class TestGetItemStatus:
 
     def test_get_item_status_up_to_date(self):
         """Test item status when up to date."""
-        from warden import get_item_status
+        from agent_warden.formatting import get_item_status
 
         status = {
             'outdated_rules': [],
@@ -206,7 +206,7 @@ class TestGetItemStatus:
 
     def test_get_item_status_outdated(self):
         """Test item status when outdated."""
-        from warden import get_item_status
+        from agent_warden.formatting import get_item_status
 
         status = {
             'outdated_rules': [{'name': 'test-rule'}],
@@ -219,7 +219,7 @@ class TestGetItemStatus:
 
     def test_get_item_status_modified(self):
         """Test item status when user modified."""
-        from warden import get_item_status
+        from agent_warden.formatting import get_item_status
 
         status = {
             'outdated_rules': [],
@@ -232,7 +232,7 @@ class TestGetItemStatus:
 
     def test_get_item_status_conflict(self):
         """Test item status when in conflict."""
-        from warden import get_item_status
+        from agent_warden.formatting import get_item_status
 
         status = {
             'outdated_rules': [],

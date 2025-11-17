@@ -10,7 +10,8 @@ Targets uncovered lines:
 import argparse
 from datetime import datetime, timedelta
 
-from warden import create_parser, format_timestamp
+from agent_warden.utils import format_timestamp
+from warden import create_parser
 
 
 class TestFormatTimestamp:
