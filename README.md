@@ -24,6 +24,12 @@ Sync Cursor Rules, Augment Rules, Claude Rules & Custom Commands Across All Your
 
 Agent Warden is a powerful command-line tool that manages and synchronizes AI coding assistant rules and custom commands across multiple projects. Whether you're using Cursor, Augment, Claude Code, Windsurf, or Codex, Agent Warden keeps your AI assistant configurations consistent and up-to-date.
 
+## Demo
+
+![Agent Warden Demo](vhs-demo/agent-warden-demo.gif)
+
+*Watch Agent Warden in action: install rules, track changes, update projects, and sync across all your projects.*
+
 **Perfect for:**
 
 - Teams using multiple AI coding assistants (Cursor + Augment + Claude)
