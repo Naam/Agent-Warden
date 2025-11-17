@@ -133,18 +133,26 @@ def format_project_detailed(project: 'ProjectState', manager) -> str:
             # Display rules
             if target_config.get('has_rules') and target_config.get('installed_rules'):
                 info += f"      Rules ({len(target_config['installed_rules'])}):\n"
+                # Find max rule name length for alignment
+                rule_names = [r['name'] if isinstance(r, dict) else r for r in target_config['installed_rules']]
+                max_rule_len = max(len(name) for name in rule_names) if rule_names else 0
+
                 for rule_info in target_config['installed_rules']:
                     rule_name = rule_info['name'] if isinstance(rule_info, dict) else rule_info
                     rule_status = get_item_status(rule_name, 'rule', status)
-                    info += f"         • {rule_name} {rule_status}\n"
+                    info += f"         • {rule_name:<{max_rule_len}} {rule_status}\n"
 
             # Display commands
             if target_config.get('has_commands') and target_config.get('installed_commands'):
                 info += f"      Commands ({len(target_config['installed_commands'])}):\n"
+                # Find max command name length for alignment
+                cmd_names = [c['name'] if isinstance(c, dict) else c for c in target_config['installed_commands']]
+                max_cmd_len = max(len(name) for name in cmd_names) if cmd_names else 0
+
                 for cmd_info in target_config['installed_commands']:
                     cmd_name = cmd_info['name'] if isinstance(cmd_info, dict) else cmd_info
                     cmd_status = get_item_status(cmd_name, 'command', status)
-                    info += f"         • {cmd_name} {cmd_status}\n"
+                    info += f"         • {cmd_name:<{max_cmd_len}} {cmd_status}\n"
     except Exception as e:
         info += f"\n   [WARNING] Could not retrieve status: {e}\n"
 
