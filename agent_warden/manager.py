@@ -49,7 +49,8 @@ class WardenManager:
             # Always use the directory where warden.py is located
             # This ensures state, config, packages, rules, and commands are all
             # in the agent-warden installation directory
-            base_path = Path(__file__).parent.resolve()
+            # Since this file is in agent_warden/, go up one level to get the repo root
+            base_path = Path(__file__).parent.parent.resolve()
 
         self.config = WardenConfig(base_path)
 
