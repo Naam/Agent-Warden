@@ -143,7 +143,7 @@ class AutoUpdater:
 
             remote_hash = result.stdout.strip()
 
-            # Check if we're behind
+            # Check if we're up to date
             if local_hash == remote_hash:
                 return None
 
@@ -162,6 +162,10 @@ class AutoUpdater:
                     commits_behind = int(result.stdout.strip())
                 except ValueError:
                     commits_behind = 0
+
+            # Only return update info if we're actually behind (not ahead)
+            if commits_behind == 0:
+                return None
 
             return {
                 'local_hash': local_hash,
