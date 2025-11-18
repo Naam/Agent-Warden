@@ -234,7 +234,8 @@ class RemoteBackend(FileSystemBackend):
 
     def _resolve_remote_path(self, path: str) -> str:
         """Resolve path on remote system."""
-        if self.base_path and not path.startswith('/'):
+        # Treat paths starting with ~ or / as absolute (shell will expand ~)
+        if self.base_path and not (path.startswith('/') or path.startswith('~')):
             # Relative path - join with base_path
             return f"{self.base_path.rstrip('/')}/{path}"
         return path
@@ -244,16 +245,30 @@ class RemoteBackend(FileSystemBackend):
         remote_path = self._resolve_remote_path(path)
         return f"{self.ssh_target}:{remote_path}"
 
+    def _quote_remote_path(self, path: str) -> str:
+        """Quote a remote path for use in SSH commands, handling ~ expansion."""
+        # If path starts with ~, use $HOME instead so shell can expand it
+        if path.startswith('~/'):
+            # Replace ~ with $HOME and quote the rest
+            return f'"$HOME/{path[2:]}"'
+        elif path == '~':
+            return '"$HOME"'
+        else:
+            # Regular path - use single quotes
+            return f"'{path}'"
+
     def exists(self, path: str) -> bool:
         """Check if path exists on remote."""
         remote_path = self._resolve_remote_path(path)
-        code, _, _ = self._run_ssh_command(f"test -e '{remote_path}'", check=False)
+        quoted_path = self._quote_remote_path(remote_path)
+        code, _, _ = self._run_ssh_command(f"test -e {quoted_path}", check=False)
         return code == 0
 
     def is_dir(self, path: str) -> bool:
         """Check if path is a directory on remote."""
         remote_path = self._resolve_remote_path(path)
-        code, _, _ = self._run_ssh_command(f"test -d '{remote_path}'", check=False)
+        quoted_path = self._quote_remote_path(remote_path)
+        code, _, _ = self._run_ssh_command(f"test -d {quoted_path}", check=False)
         return code == 0
 
     def mkdir(self, path: str, parents: bool = True, exist_ok: bool = True):
@@ -263,7 +278,8 @@ class RemoteBackend(FileSystemBackend):
         if exist_ok and self.exists(remote_path):
             return
 
-        mkdir_cmd = f"mkdir {'-p ' if parents else ''}'{remote_path}'"
+        quoted_path = self._quote_remote_path(remote_path)
+        mkdir_cmd = f"mkdir {'-p ' if parents else ''}{quoted_path}"
         self._run_ssh_command(mkdir_cmd)
 
     def copy_file(self, source: str, dest: str):
@@ -306,15 +322,17 @@ class RemoteBackend(FileSystemBackend):
     def remove_file(self, path: str):
         """Remove a file on remote."""
         remote_path = self._resolve_remote_path(path)
-        self._run_ssh_command(f"rm -f '{remote_path}'")
+        quoted_path = self._quote_remote_path(remote_path)
+        self._run_ssh_command(f"rm -f {quoted_path}")
 
     def checksum(self, path: str) -> str:
         """Calculate SHA256 checksum of remote file."""
         remote_path = self._resolve_remote_path(path)
+        quoted_path = self._quote_remote_path(remote_path)
 
         # Try sha256sum first (Linux), then shasum (macOS)
         code, stdout, _ = self._run_ssh_command(
-            f"sha256sum '{remote_path}' 2>/dev/null || shasum -a 256 '{remote_path}'",
+            f"sha256sum {quoted_path} 2>/dev/null || shasum -a 256 {quoted_path}",
             check=False
         )
 
