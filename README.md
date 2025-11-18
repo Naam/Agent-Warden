@@ -266,7 +266,7 @@ warden install user@server:/path --target augment --rules test-rule
 
 | Assistant | Rules Support | Commands Support | Config Path | Notes |
 |-----------|--------------|------------------|-------------|-------|
-| **Cursor** | ✅ `.cursor/rules/` | ❌ | Project-level | Supports symlinks |
+| **Cursor** | ✅ `.cursor/rules/` | ✅ `.cursor/commands/` | Project-level | Supports symlinks |
 | **Augment** | ✅ `.augment/rules/` | ✅ `.augment/commands/` | Project-level | **Copy mode only** |
 | **Claude Code** | ✅ `.claude/rules/` | ✅ `.claude/commands/` | Project + Global | Supports symlinks |
 | **Windsurf** | ✅ `.windsurf/rules/` | ❌ | Project + Global | Supports symlinks |
@@ -749,7 +749,7 @@ The script supports multiple AI development tools with their specific configurat
 
 ### Project-level Targets
 
-- **cursor**: Rules in `.cursor/rules/`, commands in `.cursor/rules/` (rules-based system)
+- **cursor**: Rules in `.cursor/rules/`, commands in `.cursor/commands/`
 - **augment**: Rules in `.augment/rules/`, commands in `.augment/commands/` (default)
 - **claude**: Rules in `.claude/rules/`, commands in `.claude/commands/`
 - **windsurf**: Rules in `.windsurf/rules/`, commands in `.windsurf/commands/`

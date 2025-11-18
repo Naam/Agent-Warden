@@ -16,8 +16,8 @@ class WardenConfig:
     TARGET_CONFIGS = {
         'cursor': {
             'rules_path': '.cursor/rules/',
-            'commands_path': '.cursor/rules/',
-            'supports_commands': False,
+            'commands_path': '.cursor/commands/',
+            'supports_commands': True,
             'global_config': None
         },
         'augment': {
@@ -169,6 +169,12 @@ class WardenConfig:
         target_config = self.get_target_config(target)
         if isinstance(target_config, dict) and target_config.get('global_config'):
             return self._get_system_config_path(target, target_config['global_config'])
+        return None
+
+    def get_global_commands_path(self, target: str) -> Optional[Path]:
+        """Get the global commands path for a target that supports global commands."""
+        if target == 'claude':
+            return Path.home() / '.claude' / 'commands'
         return None
 
     def _get_system_config_path(self, target: str, config_file: str) -> Path:

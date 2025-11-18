@@ -27,7 +27,8 @@ class TestWardenConfig:
         """Test getting target configuration."""
         cursor_config = config.get_target_config('cursor')
         assert cursor_config['rules_path'] == '.cursor/rules/'
-        assert cursor_config['supports_commands'] is False
+        assert cursor_config['commands_path'] == '.cursor/commands/'
+        assert cursor_config['supports_commands'] is True
 
         augment_config = config.get_target_config('augment')
         assert augment_config['rules_path'] == '.augment/rules/'
@@ -38,7 +39,7 @@ class TestWardenConfig:
         """Test checking if target supports commands."""
         assert config.target_supports_commands('augment') is True
         assert config.target_supports_commands('claude') is True
-        assert config.target_supports_commands('cursor') is False
+        assert config.target_supports_commands('cursor') is True
 
     def test_get_available_targets(self, config: WardenConfig):
         """Test getting list of available targets."""
