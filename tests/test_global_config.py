@@ -132,10 +132,80 @@ More custom content.
             assert '[warden.targets]' in content
             assert 'default = "augment"' in content
 
+    def test_install_global_config_cursor(self, manager: WardenManager, tmp_path: Path):
+        """Test installing Cursor global config."""
+        cursor_rules_dir = tmp_path / '.cursor' / 'rules'
+
+        # Create some test rules in the warden rules directory
+        manager.config.rules_dir.mkdir(parents=True, exist_ok=True)
+        test_rule1 = manager.config.rules_dir / 'test-rule-1.md'
+        test_rule1.write_text("""---
+description: Test rule 1
+---
+
+# Test Rule 1
+This is test rule 1.
+""")
+        test_rule2 = manager.config.rules_dir / 'test-rule-2.md'
+        test_rule2.write_text("""---
+description: Test rule 2
+---
+
+# Test Rule 2
+This is test rule 2.
+""")
+
+        with patch.object(manager.config, 'get_global_config_path', return_value=cursor_rules_dir):
+            result = manager.install_global_config('cursor', force=False)
+
+            assert result is True
+            assert cursor_rules_dir.exists()
+            assert cursor_rules_dir.is_dir()
+
+            # Verify rule files were copied
+            assert (cursor_rules_dir / 'test-rule-1.md').exists()
+            assert (cursor_rules_dir / 'test-rule-2.md').exists()
+
+            # Verify content
+            content1 = (cursor_rules_dir / 'test-rule-1.md').read_text()
+            assert 'Test Rule 1' in content1
+
+            content2 = (cursor_rules_dir / 'test-rule-2.md').read_text()
+            assert 'Test Rule 2' in content2
+
+    def test_install_global_config_cursor_force_overwrite(self, manager: WardenManager, tmp_path: Path):
+        """Test that cursor global config can be overwritten with --force."""
+        cursor_rules_dir = tmp_path / '.cursor' / 'rules'
+        cursor_rules_dir.mkdir(parents=True)
+
+        # Create existing rule file
+        existing_rule = cursor_rules_dir / 'old-rule.md'
+        existing_rule.write_text("Old content")
+
+        # Create new rules in warden
+        manager.config.rules_dir.mkdir(parents=True, exist_ok=True)
+        new_rule = manager.config.rules_dir / 'new-rule.md'
+        new_rule.write_text("""---
+description: New rule
+---
+
+# New Rule
+This is a new rule.
+""")
+
+        with patch.object(manager.config, 'get_global_config_path', return_value=cursor_rules_dir):
+            result = manager.install_global_config('cursor', force=True)
+
+            assert result is True
+            # Old rule should still exist (we don't delete, just add/update)
+            assert existing_rule.exists()
+            # New rule should be added
+            assert (cursor_rules_dir / 'new-rule.md').exists()
+
     def test_install_global_config_unsupported_target(self, manager: WardenManager):
         """Test installing global config for target without global config support."""
         with pytest.raises(WardenError, match="does not support global configuration"):
-            manager.install_global_config('cursor', force=False)
+            manager.install_global_config('augment', force=False)
 
     def test_install_global_config_file_exists_no_force(self, manager: WardenManager, tmp_path: Path):
         """Test that installation fails when file exists and force is False."""

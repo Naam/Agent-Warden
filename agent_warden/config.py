@@ -18,7 +18,7 @@ class WardenConfig:
             'rules_path': '.cursor/rules/',
             'commands_path': '.cursor/commands/',
             'supports_commands': True,
-            'global_config': None
+            'global_config': 'rules'  # Cursor looks at ~/.cursor/rules directory
         },
         'augment': {
             'rules_path': '.augment/rules/',

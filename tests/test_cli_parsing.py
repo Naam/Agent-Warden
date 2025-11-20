@@ -266,3 +266,68 @@ class TestProjectShortcutInterception:
             # Should NOT be modified because 'configure' is a known subcommand
             assert sys.argv == ['warden', 'project', 'configure']
 
+class TestGlobalInstallCommand:
+    """Test cases for global-install command argument parsing."""
+
+    def test_global_install_supported_targets(self):
+        """Test that global-install accepts supported targets (cursor, claude, windsurf, codex)."""
+        parser = create_parser()
+
+        # Test cursor
+        args = parser.parse_args(['global-install', 'cursor'])
+        assert args.command == 'global-install'
+        assert args.target == 'cursor'
+
+        # Test claude
+        args = parser.parse_args(['global-install', 'claude'])
+        assert args.command == 'global-install'
+        assert args.target == 'claude'
+
+        # Test windsurf
+        args = parser.parse_args(['global-install', 'windsurf'])
+        assert args.target == 'windsurf'
+
+        # Test codex
+        args = parser.parse_args(['global-install', 'codex'])
+        assert args.target == 'codex'
+
+    def test_global_install_with_force_flag(self):
+        """Test that global-install accepts --force flag."""
+        parser = create_parser()
+        args = parser.parse_args(['global-install', 'claude', '--force'])
+        assert args.command == 'global-install'
+        assert args.target == 'claude'
+        assert args.force is True
+
+    def test_global_install_unsupported_target_augment(self):
+        """Test that global-install rejects augment (not supported)."""
+        parser = create_parser()
+        # augment doesn't support global config, so it should be rejected by parser
+        with pytest.raises(SystemExit):
+            parser.parse_args(['global-install', 'augment'])
+
+    def test_global_install_with_rules_flag(self):
+        """Test that global-install accepts --rules flag."""
+        parser = create_parser()
+        args = parser.parse_args(['global-install', 'cursor', '--rules', 'git-commit', 'coding-no-emoji'])
+        assert args.command == 'global-install'
+        assert args.target == 'cursor'
+        assert args.rules == ['git-commit', 'coding-no-emoji']
+
+    def test_global_install_with_commands_flag(self):
+        """Test that global-install accepts --commands flag."""
+        parser = create_parser()
+        args = parser.parse_args(['global-install', 'claude', '--commands', 'code-review'])
+        assert args.command == 'global-install'
+        assert args.target == 'claude'
+        assert args.commands == ['code-review']
+
+    def test_global_install_with_empty_rules_flag(self):
+        """Test that global-install accepts --rules with no arguments (install all)."""
+        parser = create_parser()
+        args = parser.parse_args(['global-install', 'cursor', '--rules'])
+        assert args.command == 'global-install'
+        assert args.target == 'cursor'
+        assert args.rules == []  # Empty list means "all rules"
+
+

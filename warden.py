@@ -373,10 +373,14 @@ Examples:
 
     # Global install command
     global_parser = subparsers.add_parser('global-install', help='Install global configuration for a target')
-    global_parser.add_argument('target', choices=['claude', 'windsurf', 'codex'],
+    global_parser.add_argument('target', choices=['cursor', 'claude', 'windsurf', 'codex'],
                               help='Target to install global configuration for')
     global_parser.add_argument('--force', action='store_true',
                               help='Overwrite existing global configuration')
+    global_parser.add_argument('--rules', nargs='*', metavar='RULE',
+                              help='Install specific rules (default: all rules with confirmation)')
+    global_parser.add_argument('--commands', nargs='*', metavar='COMMAND',
+                              help='Install specific commands (default: all commands with confirmation)')
 
     # Config command
     config_parser = subparsers.add_parser('config', help='View or modify Agent Warden configuration')
@@ -799,7 +803,47 @@ def main():
 
         elif args.command == 'global-install':
             try:
-                manager.install_global_config(args.target, args.force)
+                # Determine which rules and commands to install
+                rule_names = None
+                command_names = None
+
+                # Handle --rules flag
+                if hasattr(args, 'rules') and args.rules is not None:
+                    if len(args.rules) == 0:
+                        # --rules with no arguments means all rules
+                        rule_names = None
+                    else:
+                        # Specific rules requested
+                        rule_names = args.rules
+
+                # Handle --commands flag
+                if hasattr(args, 'commands') and args.commands is not None:
+                    if len(args.commands) == 0:
+                        # --commands with no arguments means all commands
+                        command_names = None
+                    else:
+                        # Specific commands requested
+                        command_names = args.commands
+
+                # If neither --rules nor --commands specified, ask for confirmation to install all
+                if not hasattr(args, 'rules') or args.rules is None:
+                    if not hasattr(args, 'commands') or args.commands is None:
+                        # Neither flag specified - prompt for confirmation
+                        available_rules = manager._get_available_rules()
+                        print(f"This will install ALL rules ({len(available_rules)} total) to {args.target} global configuration:")
+                        for rule in available_rules[:5]:  # Show first 5
+                            print(f"  - {rule}")
+                        if len(available_rules) > 5:
+                            print(f"  ... and {len(available_rules) - 5} more")
+                        print()
+
+                        if not args.yes:
+                            response = input("Continue? [y/N]: ").strip().lower()
+                            if response not in ['y', 'yes']:
+                                print("Cancelled.")
+                                return 0
+
+                manager.install_global_config(args.target, args.force, rule_names, command_names)
                 global_path = manager.config.get_global_config_path(args.target)
                 print(colored_status('SUCCESS', f"Successfully installed global configuration for {args.target}"))
                 print(f"   Configuration: {global_path}")
@@ -808,6 +852,10 @@ def main():
                     warden_rules_path = global_path.parent / 'warden-rules.md'
                     print(f"   Rules file: {warden_rules_path}")
                     print(f"   Note: Your custom instructions in {global_path.name} are preserved")
+                elif args.target == 'cursor':
+                    print(f"   Rules installed to: {global_path}")
+                    if rule_names:
+                        print(f"   Installed {len(rule_names)} rule(s)")
             except WardenError as e:
                 print(colored_status('ERROR', str(e)))
                 return 1

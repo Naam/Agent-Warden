@@ -82,7 +82,12 @@ class TestWardenConfig:
 
     def test_get_global_config_path(self, config: WardenConfig):
         """Test getting global configuration paths."""
-        # Test Claude path (should exist)
+        # Test Cursor path
+        cursor_path = config.get_global_config_path('cursor')
+        assert cursor_path is not None
+        assert 'rules' in str(cursor_path)
+
+        # Test Claude path
         claude_path = config.get_global_config_path('claude')
         assert claude_path is not None
         assert 'CLAUDE.md' in str(claude_path)
@@ -92,9 +97,9 @@ class TestWardenConfig:
         assert windsurf_path is not None
         assert 'global_rules.md' in str(windsurf_path)
 
-        # Test target without global config
-        cursor_path = config.get_global_config_path('cursor')
-        assert cursor_path is None
+        # Test target without global config (augment)
+        augment_path = config.get_global_config_path('augment')
+        assert augment_path is None
 
     def test_invalid_target(self, config: WardenConfig):
         """Test handling of invalid target - returns default target."""
