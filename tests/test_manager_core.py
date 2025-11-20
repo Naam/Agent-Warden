@@ -165,3 +165,75 @@ class TestWardenManagerCore:
         assert code == 1
         assert stdout == ""
         assert stderr == "error message"
+
+    def test_find_project_case_insensitive_exact_match(self, manager: WardenManager, sample_project_dir: Path):
+        """Test case-insensitive project lookup with exact match."""
+        # Install a project
+        project_state = manager.install_project(str(sample_project_dir), target='augment', rule_names=['test-rule'])
+        project_name = project_state.name
+
+        # Exact match should work
+        result = manager._find_project_case_insensitive(project_name)
+        assert result == project_name
+
+    def test_find_project_case_insensitive_different_case(self, manager: WardenManager, sample_project_dir: Path):
+        """Test case-insensitive project lookup with different casing."""
+        # Install a project
+        project_state = manager.install_project(str(sample_project_dir), target='augment', rule_names=['test-rule'])
+        project_name = project_state.name
+
+        # Different cases should all find the project
+        assert manager._find_project_case_insensitive(project_name.upper()) == project_name
+        assert manager._find_project_case_insensitive(project_name.title()) == project_name
+        assert manager._find_project_case_insensitive(project_name.swapcase()) == project_name
+
+    def test_find_project_case_insensitive_not_found(self, manager: WardenManager):
+        """Test case-insensitive project lookup when project doesn't exist."""
+        result = manager._find_project_case_insensitive('nonexistent')
+        assert result is None
+
+    def test_update_project_case_insensitive(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that update_project works with case-insensitive project names."""
+        # Install a project
+        project_state = manager.install_project(str(sample_project_dir), target='augment', rule_names=['test-rule'])
+        project_name = project_state.name
+
+        # Update with different casing should work
+        result = manager.update_project(project_name.upper())
+        assert result.name == project_name
+
+    def test_add_to_project_case_insensitive(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that add_to_project works with case-insensitive project names."""
+        # Install a project with one rule
+        project_state = manager.install_project(str(sample_project_dir), target='augment', rule_names=['test-rule'])
+        project_name = project_state.name
+
+        # Add another rule with different casing
+        result = manager.add_to_project(project_name.upper(), rule_names=['rule1'])
+        assert result.name == project_name
+        assert len(result.targets['augment']['installed_rules']) == 2
+
+    def test_remove_from_project_case_insensitive(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that remove_from_project works with case-insensitive project names."""
+        # Install a project with rules
+        project_state = manager.install_project(str(sample_project_dir), target='augment', rule_names=['test-rule', 'rule1'])
+        project_name = project_state.name
+
+        # Remove with different casing should work
+        result = manager.remove_from_project(project_name.title(), rule_names=['test-rule'], skip_confirm=True)
+        assert 'test-rule' in result['removed_rules']
+
+    def test_rename_project_case_insensitive_old_name(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that rename_project finds old name case-insensitively but preserves new name casing."""
+        # Install a project
+        project_state = manager.install_project(str(sample_project_dir), target='augment', rule_names=['test-rule'])
+        project_name = project_state.name
+
+        # Rename with different casing for old name
+        result = manager.rename_project(project_name.upper(), 'MyNewProject')
+        assert result.name == 'MyNewProject'
+
+        # Old name should be gone, new name should exist with exact casing
+        assert project_name not in manager.config.state['projects']
+        assert 'MyNewProject' in manager.config.state['projects']
+        assert 'mynewproject' not in manager.config.state['projects']

@@ -105,6 +105,27 @@ class WardenManager:
         # Extract the last component of the path
         return Path(project_path).name
 
+    def _find_project_case_insensitive(self, project_name: str) -> Optional[str]:
+        """Find a project by name using case-insensitive matching.
+
+        Args:
+            project_name: The project name to search for
+
+        Returns:
+            The actual project name as stored in state, or None if not found
+        """
+        # First try exact match (fast path)
+        if project_name in self.config.state['projects']:
+            return project_name
+
+        # Try case-insensitive match
+        project_name_lower = project_name.lower()
+        for stored_name in self.config.state['projects'].keys():
+            if stored_name.lower() == project_name_lower:
+                return stored_name
+
+        return None
+
     def _create_target_directory(self, destination_path: Path):
         """Create target directory if it doesn't exist."""
         try:
@@ -739,10 +760,12 @@ class WardenManager:
             project_name: Name of the project
             target: Specific target to update. If None, updates all targets.
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
 
         # Verify project path still exists
         if not project_state.path.exists():
@@ -774,7 +797,7 @@ class WardenManager:
 
         # Update timestamp
         project_state.timestamp = datetime.now(timezone.utc).isoformat()
-        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.state['projects'][actual_name] = project_state.to_dict()
         self.config.save_state()
 
         return project_state
@@ -789,10 +812,12 @@ class WardenManager:
             rule_name: Specific rule to sever (not yet implemented)
             skip_confirm: Skip confirmation prompt
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
 
         # Ask for confirmation unless skipped
         if not skip_confirm:
@@ -864,7 +889,7 @@ class WardenManager:
 
         # Update timestamp and save
         project_state.timestamp = datetime.now(timezone.utc).isoformat()
-        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.state['projects'][actual_name] = project_state.to_dict()
         self.config.save_state()
 
         return project_state
@@ -886,22 +911,24 @@ class WardenManager:
         Returns:
             True if untracked, False if not found
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             return False
 
         # Ask for confirmation unless skipped
         if not skip_confirm:
-            project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
-            print(f"\n[WARNING] About to untrack project '{project_name}'")
+            project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
+            print(f"\n[WARNING] About to untrack project '{actual_name}'")
             print(f"   Path: {project_state.path}")
             print(f"   Targets: {', '.join(project_state.targets.keys())}")
             print("   Note: This will NOT delete any files, only stop tracking the project")
-            response = input(f"\n   Untrack '{project_name}'? [y/N]: ").strip().lower()
+            response = input(f"\n   Untrack '{actual_name}'? [y/N]: ").strip().lower()
             if response not in ['y', 'yes']:
-                print(f"   Cancelled untracking of '{project_name}'")
+                print(f"   Cancelled untracking of '{actual_name}'")
                 return False
 
-        del self.config.state['projects'][project_name]
+        del self.config.state['projects'][actual_name]
         self.config.save_state()
         return True
 
@@ -924,13 +951,15 @@ class WardenManager:
             ProjectNotFoundError: If project doesn't exist
             WardenError: If no rules or commands specified, or other errors
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
         if not rule_names and not command_names:
             raise WardenError("Must specify at least one rule or command to remove")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
 
         # Determine which targets to remove from
         if target:
@@ -1021,7 +1050,7 @@ class WardenManager:
         project_state.timestamp = datetime.now(timezone.utc).isoformat()
 
         # Save state
-        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.state['projects'][actual_name] = project_state.to_dict()
         self.config.save_state()
 
         return {
@@ -1030,10 +1059,18 @@ class WardenManager:
         }
 
     def rename_project(self, old_name: str, new_name: str) -> ProjectState:
-        """Rename a project in the tracking system."""
-        if old_name not in self.config.state['projects']:
+        """Rename a project in the tracking system.
+
+        Args:
+            old_name: Current project name
+            new_name: New project name
+        """
+        # Find old project with case-insensitive matching
+        actual_old_name = self._find_project_case_insensitive(old_name)
+        if not actual_old_name:
             raise ProjectNotFoundError(f"Project '{old_name}' not found")
 
+        # Check new name with exact match (case-sensitive to avoid conflicts)
         if new_name in self.config.state['projects']:
             raise ProjectAlreadyExistsError(f"Project '{new_name}' already exists")
 
@@ -1042,7 +1079,7 @@ class WardenManager:
             raise WardenError("New project name cannot be empty")
 
         # Get the project data
-        project_data = self.config.state['projects'][old_name]
+        project_data = self.config.state['projects'][actual_old_name]
         project_state = ProjectState.from_dict(project_data)
 
         # Update the project name
@@ -1050,7 +1087,7 @@ class WardenManager:
         project_state.timestamp = datetime.now(timezone.utc).isoformat()
 
         # Remove old entry and add new one
-        del self.config.state['projects'][old_name]
+        del self.config.state['projects'][actual_old_name]
         self.config.state['projects'][new_name] = project_state.to_dict()
         self.config.save_state()
 
@@ -1066,10 +1103,12 @@ class WardenManager:
         Returns:
             Updated ProjectState
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
 
         # Validate that all default targets are installed
         invalid_targets = [t for t in default_targets if not project_state.has_target(t)]
@@ -1084,7 +1123,7 @@ class WardenManager:
         project_state.timestamp = datetime.now(timezone.utc).isoformat()
 
         # Save state
-        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.state['projects'][actual_name] = project_state.to_dict()
         self.config.save_state()
 
         return project_state
@@ -1099,10 +1138,12 @@ class WardenManager:
             command_names: List of command names to add
             target: Specific target to add to. If None, uses default_targets or all targets.
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
 
         # Verify project path still exists (only for local projects)
         if not project_state.is_remote() and not project_state.path.exists():
@@ -1189,7 +1230,7 @@ class WardenManager:
 
         # Update timestamp and save
         project_state.timestamp = datetime.now(timezone.utc).isoformat()
-        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.state['projects'][actual_name] = project_state.to_dict()
         self.config.save_state()
 
         return project_state
@@ -1757,11 +1798,16 @@ file = "~/.codex/warden.log"
         """Check if project has outdated rules or commands with three-way comparison.
 
         Checks all targets in the project.
+
+        Args:
+            project_name: Name of the project
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
         status = {
             'outdated_rules': [],
             'outdated_commands': [],
@@ -1994,10 +2040,12 @@ file = "~/.codex/warden.log"
             item_name: Name of the rule or command
             target: Specific target to show diff for. If None, shows first found.
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
 
         # Find the item in rules or commands across all targets
         item_info = None
@@ -2087,14 +2135,16 @@ file = "~/.codex/warden.log"
             skip_confirm: Skip confirmation prompts (auto-answer yes)
             target: Specific target to update (None = all targets)
         """
-        if project_name not in self.config.state['projects']:
+        # Find project with case-insensitive matching
+        actual_name = self._find_project_case_insensitive(project_name)
+        if not actual_name:
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
-        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+        project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
         updated = {'rules': [], 'commands': [], 'errors': [], 'skipped': []}
 
         # Get project status to identify conflicts
-        status = self.check_project_status(project_name)
+        status = self.check_project_status(actual_name)
 
         # Determine what to update
         items_to_update = {'rules': [], 'commands': []}
@@ -2271,7 +2321,7 @@ file = "~/.codex/warden.log"
 
         # Save updated state
         if updated['rules'] or updated['commands']:
-            self.config.state['projects'][project_name] = project_state.to_dict()
+            self.config.state['projects'][actual_name] = project_state.to_dict()
             self.config.save_state()
 
         return updated
