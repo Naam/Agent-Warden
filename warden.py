@@ -442,6 +442,14 @@ Examples:
     search_parser = subparsers.add_parser('search', help='Search for rules and commands')
     search_parser.add_argument('query', help='Search query')
 
+    # Rules command
+    rules_parser = subparsers.add_parser('rules', help='Show rules and where they are installed')
+    rules_parser.add_argument('query', nargs='?', help='Filter rules by name (fuzzy match, case-insensitive)')
+    rules_parser.add_argument('--installed', action='store_true',
+                             help='Show only installed rules')
+    rules_parser.add_argument('--available', action='store_true',
+                             help='Show only available but not installed rules')
+
     # Diff command
     diff_parser = subparsers.add_parser('diff', help='Show differences between installed and current versions')
     diff_parser.add_argument('project_name', help='Project name')
@@ -472,7 +480,7 @@ def main():
     if len(sys.argv) == 2 and not sys.argv[1].startswith('-'):
         known_commands = ['install', 'project', 'list-commands', 'global-install', 'config',
                          'add-package', 'update-package', 'remove-package', 'list-packages',
-                         'check-updates', 'search', 'diff']
+                         'check-updates', 'search', 'diff', 'rules']
         if sys.argv[1] not in known_commands:
             # Assume it's a project name for status check
             project_name_arg = sys.argv[1]
@@ -1063,6 +1071,116 @@ def main():
                     print("[TIP]")
                     for tip in tips:
                         print(f"   {tip}")
+
+        elif args.command == 'rules':
+            # Get all available rules
+            all_rules = manager._get_available_rules()
+
+            # Get all projects to see where rules are installed
+            projects = manager.list_projects()
+
+            # Build a map of rule -> list of (project, target, path, is_remote)
+            rule_installations = {}
+            for rule in all_rules:
+                rule_installations[rule] = []
+
+            for project in projects:
+                for target_name, target_config in project.targets.items():
+                    installed_rules = target_config.get('installed_rules', [])
+                    for rule_info in installed_rules:
+                        rule_name = rule_info['name'] if isinstance(rule_info, dict) else rule_info
+
+                        # Add to installations map
+                        if rule_name not in rule_installations:
+                            rule_installations[rule_name] = []
+
+                        # Get the full path
+                        rules_path = project.get_rules_destination_path(manager.config, target_name)
+
+                        rule_installations[rule_name].append({
+                            'project': project.name,
+                            'path': str(project.path),
+                            'target': target_name,
+                            'full_path': str(rules_path / f"{rule_name}.md"),
+                            'is_remote': project.is_remote()
+                        })
+
+            # Apply fuzzy matching filter if query provided
+            if args.query:
+                query_lower = args.query.lower()
+                filtered_rules = {}
+                for rule_name, installations in rule_installations.items():
+                    # Fuzzy match: check if query is substring of rule name (case-insensitive)
+                    if query_lower in rule_name.lower():
+                        filtered_rules[rule_name] = installations
+                rule_installations = filtered_rules
+
+                if not rule_installations:
+                    print(f"No rules found matching '{args.query}'")
+                    return 0
+
+            # Apply installed/available filters
+            if args.installed:
+                rule_installations = {k: v for k, v in rule_installations.items() if v}
+            elif args.available:
+                rule_installations = {k: v for k, v in rule_installations.items() if not v}
+
+            # Sort by number of installations (most used first), then alphabetically
+            sorted_rules = sorted(
+                rule_installations.items(),
+                key=lambda x: (-len(x[1]), x[0])
+            )
+
+            # Display tree view
+            if not sorted_rules:
+                if args.installed:
+                    print("No installed rules found")
+                elif args.available:
+                    print("No available (uninstalled) rules found")
+                else:
+                    print("No rules found")
+                return 0
+
+            print("Rules Overview:\n")
+
+            for i, (rule_name, installations) in enumerate(sorted_rules):
+                is_last_rule = (i == len(sorted_rules) - 1)
+                rule_prefix = "└─" if is_last_rule else "├─"
+
+                # Show rule name and count
+                count_text = f"({len(installations)} project{'s' if len(installations) != 1 else ''})"
+                if len(installations) == 0:
+                    count_text = "(not installed)"
+
+                print(f"{rule_prefix} {rule_name} {count_text}")
+
+                # Show installations
+                if installations:
+                    for j, install in enumerate(installations):
+                        is_last_install = (j == len(installations) - 1)
+
+                        # Determine the tree characters
+                        if is_last_rule:
+                            install_prefix = "   └─" if is_last_install else "   ├─"
+                        else:
+                            install_prefix = "│  └─" if is_last_install else "│  ├─"
+
+                        # Format: project:path (target) [remote]
+                        remote_marker = " [remote]" if install['is_remote'] else ""
+                        print(f"{install_prefix} {install['project']}:{install['path']} ({install['target']}){remote_marker}")
+                else:
+                    # Show "not installed" message
+                    if is_last_rule:
+                        print("   └─ (not installed)")
+                    else:
+                        print("│  └─ (not installed)")
+
+                # Add blank line between rules for readability (except after last rule)
+                if not is_last_rule:
+                    if is_last_rule:
+                        print()
+                    else:
+                        print("│")
 
         elif args.command == 'status':
             if args.project_name:
