@@ -77,16 +77,23 @@ def format_project_info(project: 'ProjectState', verbose: bool = False) -> str:
     target_names = list(project.targets.keys())
     targets_str = ', '.join(target_names) if target_names else 'none'
 
+    # Check if this is the @global project
+    is_global = project.name == '@global'
+
     # Show remote location if project is on remote server
-    if project.is_remote():
+    if is_global:
+        # Special formatting for @global project
+        path_display = "Global Configuration"
+        icon = "🌍"
+    elif project.is_remote():
         path_display = project.location_string
-        remote_icon = "🌐"
+        icon = "🌐"
     else:
         path_display = str(project.path)
-        remote_icon = ""
+        icon = "📦"
 
-    info = (f"📦 {project.name}\n"
-            f"   {remote_icon} Path: {path_display}\n"
+    info = (f"{icon} {project.name}\n"
+            f"   Path: {path_display}\n"
             f"   Targets: {targets_str}")
 
     if verbose:
@@ -120,16 +127,22 @@ def format_project_detailed(project: 'ProjectState', manager) -> str:
     target_names = list(project.targets.keys())
     targets_str = ', '.join(target_names) if target_names else 'none'
 
+    # Check if this is the @global project
+    is_global = project.name == '@global'
+
     # Show remote location if project is on remote server
-    if project.is_remote():
+    if is_global:
+        path_display = "Global Configuration"
+        icon = "🌍"
+    elif project.is_remote():
         path_display = project.location_string
-        remote_icon = "🌐"
+        icon = "🌐"
     else:
         path_display = str(project.path)
-        remote_icon = ""
+        icon = "📦"
 
-    info = (f"📦 {project.name}\n"
-            f"   {remote_icon} Path: {path_display}\n"
+    info = (f"{icon} {project.name}\n"
+            f"   Path: {path_display}\n"
             f"   Targets: {targets_str}\n")
 
     if project.default_targets:

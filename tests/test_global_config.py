@@ -218,6 +218,73 @@ This is a new rule.
             with pytest.raises(WardenError, match="Global config already exists.*Use --force"):
                 manager.install_global_config('claude', force=False)
 
+    def test_global_install_creates_global_project(self, manager: WardenManager, tmp_path: Path):
+        """Test that global-install creates a @global project entry in state."""
+        cursor_rules_dir = tmp_path / '.cursor' / 'rules'
+
+        # Create test rules
+        manager.config.rules_dir.mkdir(parents=True, exist_ok=True)
+        test_rule = manager.config.rules_dir / 'test-rule.md'
+        test_rule.write_text("""---
+description: Test rule
+---
+
+# Test Rule
+""")
+
+        with patch.object(manager.config, 'get_global_config_path', return_value=cursor_rules_dir):
+            # Install global config for cursor
+            manager.install_global_config('cursor', force=False, rule_names=['test-rule'])
+
+            # Verify @global project was created
+            assert '@global' in manager.config.state['projects']
+
+            global_project_data = manager.config.state['projects']['@global']
+            assert global_project_data['name'] == '@global'
+            # Path will be resolved, just check it contains @global
+            assert '@global' in global_project_data['path']
+
+            # Verify cursor target was added
+            assert 'targets' in global_project_data
+            assert 'cursor' in global_project_data['targets']
+
+            cursor_target = global_project_data['targets']['cursor']
+            assert cursor_target['install_type'] == 'copy'
+            assert len(cursor_target['installed_rules']) == 1
+            assert cursor_target['installed_rules'][0]['name'] == 'test-rule'
+
+    def test_global_install_updates_existing_global_project(self, manager: WardenManager, tmp_path: Path):
+        """Test that subsequent global-install updates the @global project."""
+        cursor_rules_dir = tmp_path / '.cursor' / 'rules'
+        claude_dir = tmp_path / '.claude'
+        claude_config = claude_dir / 'CLAUDE.md'
+
+        # Create test rules
+        manager.config.rules_dir.mkdir(parents=True, exist_ok=True)
+        rule1 = manager.config.rules_dir / 'rule1.md'
+        rule1.write_text("# Rule 1")
+        rule2 = manager.config.rules_dir / 'rule2.md'
+        rule2.write_text("# Rule 2")
+
+        # Install cursor first
+        with patch.object(manager.config, 'get_global_config_path', return_value=cursor_rules_dir):
+            manager.install_global_config('cursor', force=False, rule_names=['rule1'])
+
+        # Install claude second
+        with patch.object(manager.config, 'get_global_config_path', return_value=claude_config):
+            manager.install_global_config('claude', force=False, rule_names=['rule2'])
+
+        # Verify @global project has both targets
+        assert '@global' in manager.config.state['projects']
+        global_project_data = manager.config.state['projects']['@global']
+
+        assert 'cursor' in global_project_data['targets']
+        assert 'claude' in global_project_data['targets']
+
+        # Verify each target has its rules
+        assert global_project_data['targets']['cursor']['installed_rules'][0]['name'] == 'rule1'
+        assert global_project_data['targets']['claude']['installed_rules'][0]['name'] == 'rule2'
+
     def test_install_global_config_unknown_target(self, manager: WardenManager, tmp_path: Path):
         """Test installing global config for unknown target."""
         unknown_config = tmp_path / 'unknown.conf'

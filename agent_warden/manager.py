@@ -1047,6 +1047,30 @@ class WardenManager:
         # Create directory if it doesn't exist
         global_config_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Collect installed rules info for tracking
+        installed_rules_list = []
+
+        # Determine which rules were actually installed
+        if rule_names is None:
+            # All rules
+            if self.config.rules_dir.exists():
+                for rule_file in sorted(self.config.rules_dir.glob('*.md')):
+                    if 'example' in rule_file.parts:
+                        continue
+                    installed_rules_list.append({
+                        'name': rule_file.stem,
+                        'source': 'built-in',
+                        'type': 'rule'
+                    })
+        else:
+            # Specific rules
+            for rule_name in rule_names:
+                installed_rules_list.append({
+                    'name': rule_name,
+                    'source': 'built-in',
+                    'type': 'rule'
+                })
+
         # Generate appropriate global configuration
         if target == 'cursor':
             self._create_cursor_global_config(global_config_path, rule_names, command_names)
@@ -1059,7 +1083,51 @@ class WardenManager:
         else:
             raise WardenError(f"Global config generation not implemented for target: {target}")
 
+        # Create or update @global project in state
+        self._update_global_project_state(target, installed_rules_list, [])
+
         return True
+
+    def _update_global_project_state(self, target: str, installed_rules: List[Dict],
+                                     installed_commands: List[Dict]):
+        """Update or create the @global project entry in state.
+
+        Args:
+            target: Target name (cursor, claude, windsurf, codex)
+            installed_rules: List of installed rule info dicts
+            installed_commands: List of installed command info dicts
+        """
+        GLOBAL_PROJECT_NAME = '@global'
+
+        # Get or create @global project
+        if GLOBAL_PROJECT_NAME in self.config.state['projects']:
+            # Load existing @global project
+            project_state = ProjectState.from_dict(self.config.state['projects'][GLOBAL_PROJECT_NAME])
+        else:
+            # Create new @global project
+            project_state = ProjectState(
+                name=GLOBAL_PROJECT_NAME,
+                path='@global',  # Special marker path
+                targets={},
+                timestamp=datetime.now(timezone.utc).isoformat()
+            )
+
+        # Add or update the target
+        project_state.add_target(
+            target=target,
+            install_type='copy',  # Global installs are always copies
+            has_rules=bool(installed_rules),
+            has_commands=bool(installed_commands),
+            installed_rules=installed_rules,
+            installed_commands=installed_commands
+        )
+
+        # Update timestamp
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Save to state
+        self.config.state['projects'][GLOBAL_PROJECT_NAME] = project_state.to_dict()
+        self.config.save_state()
 
     def _create_claude_global_config(self, config_path: Path,
                                     rule_names: Optional[List[str]] = None,
