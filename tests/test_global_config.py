@@ -162,15 +162,15 @@ This is test rule 2.
             assert cursor_rules_dir.exists()
             assert cursor_rules_dir.is_dir()
 
-            # Verify rule files were copied
-            assert (cursor_rules_dir / 'test-rule-1.md').exists()
-            assert (cursor_rules_dir / 'test-rule-2.md').exists()
+            # Verify rule files were copied with .mdc extension for cursor
+            assert (cursor_rules_dir / 'test-rule-1.mdc').exists()
+            assert (cursor_rules_dir / 'test-rule-2.mdc').exists()
 
             # Verify content
-            content1 = (cursor_rules_dir / 'test-rule-1.md').read_text()
+            content1 = (cursor_rules_dir / 'test-rule-1.mdc').read_text()
             assert 'Test Rule 1' in content1
 
-            content2 = (cursor_rules_dir / 'test-rule-2.md').read_text()
+            content2 = (cursor_rules_dir / 'test-rule-2.mdc').read_text()
             assert 'Test Rule 2' in content2
 
     def test_install_global_config_cursor_force_overwrite(self, manager: WardenManager, tmp_path: Path):
@@ -178,8 +178,8 @@ This is test rule 2.
         cursor_rules_dir = tmp_path / '.cursor' / 'rules'
         cursor_rules_dir.mkdir(parents=True)
 
-        # Create existing rule file
-        existing_rule = cursor_rules_dir / 'old-rule.md'
+        # Create existing rule file with .mdc extension
+        existing_rule = cursor_rules_dir / 'old-rule.mdc'
         existing_rule.write_text("Old content")
 
         # Create new rules in warden
@@ -199,8 +199,8 @@ This is a new rule.
             assert result is True
             # Old rule should still exist (we don't delete, just add/update)
             assert existing_rule.exists()
-            # New rule should be added
-            assert (cursor_rules_dir / 'new-rule.md').exists()
+            # New rule should be added with .mdc extension
+            assert (cursor_rules_dir / 'new-rule.mdc').exists()
 
     def test_install_global_config_unsupported_target(self, manager: WardenManager):
         """Test installing global config for target without global config support."""

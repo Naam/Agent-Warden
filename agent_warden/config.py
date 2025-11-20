@@ -18,31 +18,36 @@ class WardenConfig:
             'rules_path': '.cursor/rules/',
             'commands_path': '.cursor/commands/',
             'supports_commands': True,
-            'global_config': 'rules'  # Cursor looks at ~/.cursor/rules directory
+            'global_config': 'rules',  # Cursor looks at ~/.cursor/rules directory
+            'rule_extension': '.mdc'  # Cursor requires .mdc extension for rules
         },
         'augment': {
             'rules_path': '.augment/rules/',
             'commands_path': '.augment/commands/',
             'supports_commands': True,
-            'global_config': None
+            'global_config': None,
+            'rule_extension': '.md'  # Augment uses .md extension
         },
         'claude': {
             'rules_path': '.claude/rules/',
             'commands_path': '.claude/commands/',
             'supports_commands': True,
-            'global_config': 'CLAUDE.md'
+            'global_config': 'CLAUDE.md',
+            'rule_extension': '.md'  # Claude uses .md extension (may need .mdc - TBD)
         },
         'windsurf': {
             'rules_path': '.windsurf/rules/',
             'commands_path': '.windsurf/commands/',
             'supports_commands': False,
-            'global_config': 'global_rules.md'
+            'global_config': 'global_rules.md',
+            'rule_extension': '.md'  # Windsurf uses .md extension
         },
         'codex': {
             'rules_path': '.codex/rules/',
             'commands_path': '.codex/commands/',
             'supports_commands': True,
-            'global_config': 'config.toml'
+            'global_config': 'config.toml',
+            'rule_extension': '.md'  # Codex uses .md extension
         }
     }
 
@@ -156,6 +161,26 @@ class WardenConfig:
         if isinstance(target_config, dict):
             return target_config['commands_path']
         return target_config  # Fallback to rules path
+
+    def get_target_rule_extension(self, target: str) -> str:
+        """Get the rule file extension for a target.
+
+        Args:
+            target: Target assistant name (e.g., 'cursor', 'augment')
+
+        Returns:
+            File extension including the dot (e.g., '.mdc' or '.md')
+        """
+        target_config = self.get_target_config(target)
+        if isinstance(target_config, dict):
+            # First try to get from loaded config
+            extension = target_config.get('rule_extension')
+            if extension:
+                return extension
+            # Fall back to TARGET_CONFIGS default if not in saved config
+            if target in self.TARGET_CONFIGS:
+                return self.TARGET_CONFIGS[target].get('rule_extension', '.md')
+        return '.md'  # Default to .md for backward compatibility
 
     def target_supports_commands(self, target: str) -> bool:
         """Check if target supports custom commands."""

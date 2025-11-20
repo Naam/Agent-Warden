@@ -316,14 +316,21 @@ class WardenManager:
         else:
             command_name = command_spec
 
-        # All rule files are now .md
-        dest_filename = f"{command_name}.md"
+        # Determine if this is a command file (vs a rule file)
+        is_command = '/commands/' in str(destination_dir) or str(destination_dir).endswith('/commands')
+
+        # Determine file extension based on target and file type
+        # Commands always use .md, rules use target-specific extension
+        if is_command:
+            file_extension = '.md'
+        else:
+            # For rules, use target-specific extension (e.g., .mdc for cursor, .md for others)
+            file_extension = self.config.get_target_rule_extension(target) if target else '.md'
+
+        dest_filename = f"{command_name}{file_extension}"
 
         dest_path = destination_dir / dest_filename
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Determine if this is a command file (vs a rule file)
-        is_command = '/commands/' in str(destination_dir) or str(destination_dir).endswith('/commands')
 
         # Process template if copying a command file with a target specified
         if use_copy and is_command and target:
@@ -369,17 +376,24 @@ class WardenManager:
         else:
             command_name = command_spec
 
-        # All rule files are now .md
-        dest_filename = f"{command_name}.md"
+        # Determine if this is a command file (vs a rule file)
+        is_command = '/commands/' in destination_dir or destination_dir.endswith('/commands')
+
+        # Determine file extension based on target and file type
+        # Commands always use .md, rules use target-specific extension
+        if is_command:
+            file_extension = '.md'
+        else:
+            # For rules, use target-specific extension (e.g., .mdc for cursor, .md for others)
+            file_extension = self.config.get_target_rule_extension(target) if target else '.md'
+
+        dest_filename = f"{command_name}{file_extension}"
 
         # Construct destination path
         dest_path = f"{destination_dir.rstrip('/')}/{dest_filename}"
 
         # Ensure parent directory exists
         backend.mkdir(destination_dir, parents=True, exist_ok=True)
-
-        # Determine if this is a command file (vs a rule file)
-        is_command = '/commands/' in destination_dir or destination_dir.endswith('/commands')
 
         # Calculate checksum - use processed content checksum if template processing will occur
         should_process = (
@@ -828,13 +842,15 @@ class WardenManager:
             if not os.access(rules_dir, os.W_OK):
                 raise PermissionError(f"No write permission for rules directory: {rules_dir}")
 
-            # Convert symlink to copy for all .md files
+            # Convert symlink to copy for all rule files (.md and .mdc)
             if rule_name is None or rule_name == 'all':
                 converted_any = False
-                for rule_file in rules_dir.glob("*.md"):
-                    if self._is_symlink_to_rules(rule_file):
-                        self._convert_symlink_to_copy(rule_file)
-                        converted_any = True
+                # Check both .md and .mdc extensions
+                for pattern in ["*.md", "*.mdc"]:
+                    for rule_file in rules_dir.glob(pattern):
+                        if self._is_symlink_to_rules(rule_file):
+                            self._convert_symlink_to_copy(rule_file)
+                            converted_any = True
 
                 if converted_any:
                     # Update target config
@@ -960,8 +976,9 @@ class WardenManager:
                             break
 
                     if rule_index is not None:
-                        # Delete the file
-                        rule_file = rules_destination / f"{rule_name}.md"
+                        # Delete the file with target-specific extension
+                        rule_extension = self.config.get_target_rule_extension(target_name)
+                        rule_file = rules_destination / f"{rule_name}{rule_extension}"
                         try:
                             backend.remove_file(str(rule_file))
                             # Remove from state
@@ -1473,9 +1490,11 @@ file = "~/.codex/warden.log"
                     raise WardenError(f"Rule '{rule_name}' not found in {self.config.rules_dir}")
                 rules_to_install.append(rule_file)
 
-        # Copy rule files to cursor global rules directory
+        # Copy rule files to cursor global rules directory with .mdc extension
         for rule_file in rules_to_install:
-            dest_file = rules_dir / rule_file.name
+            # Change extension from .md to .mdc for Cursor
+            dest_filename = rule_file.stem + '.mdc'
+            dest_file = rules_dir / dest_filename
             dest_file.write_text(rule_file.read_text())
 
     def list_available_commands(self) -> List[str]:
@@ -1744,7 +1763,9 @@ file = "~/.codex/warden.log"
                     continue
 
                 source_path = Path(rule_info['source'])
-                dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{rule_info['name']}.md"
+                # Use target-specific extension for rules
+                rule_extension = self.config.get_target_rule_extension(target_name)
+                dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{rule_info['name']}{rule_extension}"
 
                 if not source_path.exists():
                     status['missing_sources'].append({
@@ -1970,7 +1991,9 @@ file = "~/.codex/warden.log"
             for rule in target_config.get('installed_rules', []):
                 if rule['name'] == item_name:
                     item_info = rule
-                    dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{item_name}.md"
+                    # Use target-specific extension for rules
+                    rule_extension = self.config.get_target_rule_extension(target_name)
+                    dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{item_name}{rule_extension}"
                     break
 
             if item_info:
@@ -2141,7 +2164,9 @@ file = "~/.codex/warden.log"
 
                     # Get source and destination paths
                     source_path = Path(rule_info['source'])
-                    dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{rule_name}.md"
+                    # Use target-specific extension for rules
+                    rule_extension = self.config.get_target_rule_extension(target_name)
+                    dest_path = project_state.get_rules_destination_path(self.config, target_name) / f"{rule_name}{rule_extension}"
 
                     if not source_path.exists():
                         updated['errors'].append(f"Source file not found for '{rule_name}' in target '{target_name}': {source_path}")

@@ -1096,12 +1096,14 @@ def main():
 
                         # Get the full path
                         rules_path = project.get_rules_destination_path(manager.config, target_name)
+                        # Use target-specific extension for rules
+                        rule_extension = manager.config.get_target_rule_extension(target_name)
 
                         rule_installations[rule_name].append({
                             'project': project.name,
                             'path': str(project.path),
                             'target': target_name,
-                            'full_path': str(rules_path / f"{rule_name}.md"),
+                            'full_path': str(rules_path / f"{rule_name}{rule_extension}"),
                             'is_remote': project.is_remote()
                         })
 

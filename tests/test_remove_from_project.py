@@ -162,7 +162,7 @@ class TestRemoveFromProject:
         assert 'test-rule' in augment_rules
 
         # Verify cursor file deleted but augment file exists
-        cursor_file = sample_project_dir / ".cursor" / "rules" / "test-rule.md"
+        cursor_file = sample_project_dir / ".cursor" / "rules" / "test-rule.mdc"
         augment_file = sample_project_dir / ".augment" / "rules" / "test-rule.md"
         assert not cursor_file.exists()
         assert augment_file.exists()
@@ -202,7 +202,7 @@ class TestRemoveFromProject:
         assert 'test-rule' not in augment_rules
 
         # Verify both files deleted
-        cursor_file = sample_project_dir / ".cursor" / "rules" / "test-rule.md"
+        cursor_file = sample_project_dir / ".cursor" / "rules" / "test-rule.mdc"
         augment_file = sample_project_dir / ".augment" / "rules" / "test-rule.md"
         assert not cursor_file.exists()
         assert not augment_file.exists()

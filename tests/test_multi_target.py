@@ -57,10 +57,10 @@ This is a test rule.
         assert project2.has_target('cursor')
         assert len(project2.targets) == 2
 
-        # Verify cursor directory was created
+        # Verify cursor directory was created with .mdc extension
         cursor_rules_dir = sample_project_dir / ".cursor" / "rules"
         assert cursor_rules_dir.exists()
-        assert (cursor_rules_dir / "test-rule.md").exists()
+        assert (cursor_rules_dir / "test-rule.mdc").exists()
 
         # Verify both directories still exist
         assert (sample_project_dir / ".augment" / "rules").exists()
@@ -340,9 +340,9 @@ description: Test rule
         assert project.has_target('cursor')
         assert project.has_target('claude')
 
-        # Verify directories were created
+        # Verify directories were created with correct extensions
         assert (sample_project_dir / ".augment" / "rules" / "test-rule.md").exists()
-        assert (sample_project_dir / ".cursor" / "rules" / "test-rule.md").exists()
+        assert (sample_project_dir / ".cursor" / "rules" / "test-rule.mdc").exists()
         assert (sample_project_dir / ".claude" / "rules" / "test-rule.md").exists()
 
 
@@ -478,8 +478,8 @@ This is a test rule.
             rule_names=['test-rule']
         )
 
-        # Verify symlink was created
-        dest_path = sample_project_dir / ".cursor" / "rules" / "test-rule.md"
+        # Verify symlink was created with .mdc extension for cursor
+        dest_path = sample_project_dir / ".cursor" / "rules" / "test-rule.mdc"
         assert dest_path.exists()
         assert dest_path.is_symlink()
 
