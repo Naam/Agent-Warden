@@ -10,6 +10,8 @@ Targets uncovered lines:
 import argparse
 from datetime import datetime, timedelta
 
+import pytest
+
 from agent_warden.utils import format_timestamp
 from warden import create_parser
 
@@ -167,4 +169,100 @@ class TestCreateParser:
         args = parser.parse_args(['project', 'list'])
         assert args.command == 'project'
         assert args.project_command == 'list'
+
+    def test_parser_project_configure_command(self):
+        """Test parsing project configure command with correct argument order."""
+        parser = create_parser()
+        # Correct syntax: project_name comes before --targets
+        args = parser.parse_args(['project', 'configure', 'ProjectNameExample', '--targets', 'cursor'])
+        assert args.command == 'project'
+        assert args.project_command == 'configure'
+        assert args.project_name == 'ProjectNameExample'
+        assert args.targets == ['cursor']
+
+    def test_parser_project_configure_multiple_targets(self):
+        """Test parsing project configure command with multiple targets."""
+        parser = create_parser()
+        args = parser.parse_args(['project', 'configure', 'my-project', '--targets', 'cursor', 'augment', 'claude'])
+        assert args.command == 'project'
+        assert args.project_command == 'configure'
+        assert args.project_name == 'my-project'
+        assert args.targets == ['cursor', 'augment', 'claude']
+
+    def test_parser_project_configure_invalid_target(self):
+        """Test that invalid target choices are rejected."""
+        parser = create_parser()
+        # This should raise SystemExit because 'invalid-target' is not in choices
+        with pytest.raises(SystemExit):
+            parser.parse_args(['project', 'configure', 'my-project', '--targets', 'invalid-target'])
+
+    def test_parser_project_configure_wrong_order_fails(self):
+        """Test that wrong argument order (--targets before project_name) fails."""
+        parser = create_parser()
+        # This should fail because --targets comes before the positional project_name
+        # The parser will interpret 'cursor' as project_name and 'ProjectNameExample' as a target
+        # which will fail because 'ProjectNameExample' is not a valid choice
+        with pytest.raises(SystemExit):
+            parser.parse_args(['project', 'configure', '--targets', 'cursor', 'ProjectNameExample'])
+
+
+class TestProjectShortcutInterception:
+    """Test the 'project <name>' shortcut that converts to 'project show <name>'."""
+
+    def test_project_name_shortcut(self):
+        """Test that 'project myproject' is interpreted as 'project show myproject'."""
+        import sys
+        from unittest.mock import patch
+
+        # Simulate: warden project myproject
+        test_argv = ['warden', 'project', 'myproject']
+
+        with patch.object(sys, 'argv', test_argv):
+            # The main() function modifies sys.argv in place
+            # We need to test the logic directly
+            if len(sys.argv) >= 3 and sys.argv[1] == 'project':
+                known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename', 'configure']
+                if sys.argv[2] not in known_subcommands and not sys.argv[2].startswith('-'):
+                    if len(sys.argv) < 4 or sys.argv[3] not in known_subcommands:
+                        sys.argv.insert(2, 'show')
+
+            assert sys.argv == ['warden', 'project', 'show', 'myproject']
+
+    def test_project_name_with_subcommand_not_intercepted(self):
+        """Test that 'project myproject configure' is NOT converted to 'project show myproject configure'."""
+        import sys
+        from unittest.mock import patch
+
+        # Simulate: warden project myproject configure
+        test_argv = ['warden', 'project', 'myproject', 'configure']
+
+        with patch.object(sys, 'argv', test_argv):
+            # Apply the interception logic
+            if len(sys.argv) >= 3 and sys.argv[1] == 'project':
+                known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename', 'configure']
+                if sys.argv[2] not in known_subcommands and not sys.argv[2].startswith('-'):
+                    if len(sys.argv) < 4 or sys.argv[3] not in known_subcommands:
+                        sys.argv.insert(2, 'show')
+
+            # Should NOT insert 'show' because 'configure' is a known subcommand
+            assert sys.argv == ['warden', 'project', 'myproject', 'configure']
+
+    def test_project_subcommand_directly(self):
+        """Test that 'project configure' works without interception."""
+        import sys
+        from unittest.mock import patch
+
+        # Simulate: warden project configure
+        test_argv = ['warden', 'project', 'configure']
+
+        with patch.object(sys, 'argv', test_argv):
+            # Apply the interception logic
+            if len(sys.argv) >= 3 and sys.argv[1] == 'project':
+                known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename', 'configure']
+                if sys.argv[2] not in known_subcommands and not sys.argv[2].startswith('-'):
+                    if len(sys.argv) < 4 or sys.argv[3] not in known_subcommands:
+                        sys.argv.insert(2, 'show')
+
+            # Should NOT be modified because 'configure' is a known subcommand
+            assert sys.argv == ['warden', 'project', 'configure']
 

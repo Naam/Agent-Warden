@@ -267,6 +267,7 @@ Examples:
   %(prog)s project update my_project --target cursor  # Update only cursor target
   %(prog)s project update my_project --force  # Force update conflicts
   %(prog)s project sever my_project --target augment  # Sever only augment target
+  %(prog)s project configure my_project --targets cursor augment  # Set default targets
   %(prog)s project rename old-name new-name
   %(prog)s project remove my_project
 
@@ -438,8 +439,12 @@ def main():
         # Check if the second argument is not a known subcommand
         known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename', 'configure']
         if sys.argv[2] not in known_subcommands and not sys.argv[2].startswith('-'):
-            # Insert 'show' before the project name
-            sys.argv.insert(2, 'show')
+            # Only insert 'show' if there's no known subcommand following
+            # (e.g., 'project myproject' -> 'project show myproject')
+            # but NOT 'project myproject configure' -> should stay as is (error will be caught by parser)
+            if len(sys.argv) < 4 or sys.argv[3] not in known_subcommands:
+                # Insert 'show' before the project name
+                sys.argv.insert(2, 'show')
 
     args = parser.parse_args()
 

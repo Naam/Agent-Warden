@@ -346,3 +346,110 @@ description: Test rule
         assert (sample_project_dir / ".claude" / "rules" / "test-rule.md").exists()
 
 
+class TestConfigureProjectTargets:
+    """Test cases for configuring default targets for a project."""
+
+    def test_configure_project_targets_basic(self, manager: WardenManager, sample_project_dir: Path):
+        """Test configuring default targets for a project."""
+        # Create test rules
+        rules_dir = manager.config.base_path / "rules"
+        rules_dir.mkdir(exist_ok=True)
+        test_rule = rules_dir / "test-rule.md"
+        test_rule.write_text("""---
+description: Test rule
+globs: ["**/*.py"]
+---
+
+# Test Rule
+This is a test rule.
+""")
+
+        # Install project with multiple targets
+        project = manager.install_project(
+            sample_project_dir,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        manager.install_project(
+            sample_project_dir,
+            target='cursor',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Configure default targets
+        configured_project = manager.configure_project_targets(
+            project.name,
+            ['augment', 'cursor']
+        )
+
+        assert configured_project.default_targets == ['augment', 'cursor']
+        assert configured_project.name == project.name
+
+    def test_configure_project_targets_single_target(self, manager: WardenManager, sample_project_dir: Path):
+        """Test configuring a single default target."""
+        # Create test rules
+        rules_dir = manager.config.base_path / "rules"
+        rules_dir.mkdir(exist_ok=True)
+        test_rule = rules_dir / "test-rule.md"
+        test_rule.write_text("""---
+description: Test rule
+---
+
+# Test Rule
+""")
+
+        # Install project with one target
+        project = manager.install_project(
+            sample_project_dir,
+            target='cursor',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Configure default target
+        configured_project = manager.configure_project_targets(
+            project.name,
+            ['cursor']
+        )
+
+        assert configured_project.default_targets == ['cursor']
+
+    def test_configure_project_targets_not_installed(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that configuring uninstalled targets raises an error."""
+        # Create test rules
+        rules_dir = manager.config.base_path / "rules"
+        rules_dir.mkdir(exist_ok=True)
+        test_rule = rules_dir / "test-rule.md"
+        test_rule.write_text("""---
+description: Test rule
+---
+
+# Test Rule
+""")
+
+        # Install project with only augment target
+        project = manager.install_project(
+            sample_project_dir,
+            target='augment',
+            use_copy=True,
+            rule_names=['test-rule']
+        )
+
+        # Try to configure with uninstalled target
+        with pytest.raises(WardenError, match="Cannot set default targets that are not installed"):
+            manager.configure_project_targets(
+                project.name,
+                ['augment', 'cursor']  # cursor is not installed
+            )
+
+    def test_configure_project_targets_nonexistent_project(self, manager: WardenManager):
+        """Test that configuring a nonexistent project raises an error."""
+        from warden import ProjectNotFoundError
+
+        with pytest.raises(ProjectNotFoundError, match="Project 'nonexistent' not found"):
+            manager.configure_project_targets('nonexistent', ['augment'])
+
+
