@@ -1104,8 +1104,8 @@ class WardenManager:
 
         project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
 
-        # Verify project path still exists
-        if not project_state.path.exists():
+        # Verify project path still exists (only for local projects)
+        if not project_state.is_remote() and not project_state.path.exists():
             raise FileNotFoundError(f"Project path no longer exists: {project_state.path}")
 
         # Determine which targets to update
@@ -1130,7 +1130,13 @@ class WardenManager:
             # Add rules if requested
             if rule_names:
                 rules_destination = project_state.get_rules_destination_path(self.config, target_name)
-                self._create_target_directory(rules_destination / "dummy")
+
+                # Use backend-aware installation for remote projects
+                if project_state.is_remote():
+                    rules_dest_str = str(rules_destination)
+                    project_state.backend.mkdir(rules_dest_str, parents=True, exist_ok=True)
+                else:
+                    self._create_target_directory(rules_destination / "dummy")
 
                 for rule_name in rule_names:
                     # Check if rule is already installed for this target
@@ -1139,7 +1145,13 @@ class WardenManager:
                         print(f"[INFO] Rule '{rule_name}' is already installed for target '{target_name}', skipping")
                         continue
 
-                    install_info = self._install_command(rule_name, rules_destination, use_copy, target_name)
+                    # Use appropriate installation method based on project type
+                    if project_state.is_remote():
+                        rules_dest_str = str(rules_destination)
+                        install_info = self._install_command_with_backend(rule_name, rules_dest_str, project_state.backend, use_copy, target_name)
+                    else:
+                        install_info = self._install_command(rule_name, rules_destination, use_copy, target_name)
+
                     target_config['installed_rules'].append(install_info)
                     target_config['has_rules'] = True
 
@@ -1150,7 +1162,13 @@ class WardenManager:
                     continue
 
                 commands_destination = project_state.get_commands_destination_path(self.config, target_name)
-                self._create_target_directory(commands_destination / "dummy")
+
+                # Use backend-aware installation for remote projects
+                if project_state.is_remote():
+                    commands_dest_str = str(commands_destination)
+                    project_state.backend.mkdir(commands_dest_str, parents=True, exist_ok=True)
+                else:
+                    self._create_target_directory(commands_destination / "dummy")
 
                 for command_name in command_names:
                     # Check if command is already installed for this target
@@ -1159,7 +1177,13 @@ class WardenManager:
                         print(f"[INFO] Command '{command_name}' is already installed for target '{target_name}', skipping")
                         continue
 
-                    install_info = self._install_command(command_name, commands_destination, use_copy, target_name)
+                    # Use appropriate installation method based on project type
+                    if project_state.is_remote():
+                        commands_dest_str = str(commands_destination)
+                        install_info = self._install_command_with_backend(command_name, commands_dest_str, project_state.backend, use_copy, target_name)
+                    else:
+                        install_info = self._install_command(command_name, commands_destination, use_copy, target_name)
+
                     target_config['installed_commands'].append(install_info)
                     target_config['has_commands'] = True
 

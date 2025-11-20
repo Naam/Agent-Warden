@@ -202,3 +202,58 @@ class TestRemoteLocationParsing:
         assert path == "/local/path/to/project"
         assert isinstance(backend, LocalBackend)
 
+    @patch('subprocess.run')
+    @patch('shutil.which')
+    def test_add_to_remote_project(self, mock_which, mock_run, tmp_path):
+        """Test adding rules/commands to an existing remote project."""
+        mock_which.return_value = '/usr/bin/rsync'
+
+        def mock_subprocess(cmd, **kwargs):
+            return Mock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = mock_subprocess
+
+        # Setup warden
+        warden_dir = tmp_path / "warden"
+        warden_dir.mkdir()
+        rules_dir = warden_dir / "rules"
+        rules_dir.mkdir()
+
+        # Create test rules
+        (rules_dir / "rule1.md").write_text("---\ndescription: Rule 1\n---\n# Rule 1")
+        (rules_dir / "rule2.md").write_text("---\ndescription: Rule 2\n---\n# Rule 2")
+
+        commands_dir = warden_dir / "commands"
+        commands_dir.mkdir()
+        (commands_dir / "cmd1.md").write_text("---\ndescription: Command 1\n---\n# Command 1")
+
+        manager = WardenManager(base_path=warden_dir)
+
+        # Install initial project to remote
+        remote_location = "user@server.com:/var/www/project"
+        project_state = manager.install_project(
+            remote_location,
+            target='augment',
+            rule_names=['rule1']
+        )
+
+        assert project_state.is_remote()
+        assert 'rule1' in [r['name'] for r in project_state.targets['augment']['installed_rules']]
+
+        # Now add more rules and commands using add_to_project
+        updated_project = manager.add_to_project(
+            project_state.name,
+            rule_names=['rule2'],
+            command_names=['cmd1']
+        )
+
+        # Verify the additions
+        assert updated_project.is_remote()
+        assert 'rule1' in [r['name'] for r in updated_project.targets['augment']['installed_rules']]
+        assert 'rule2' in [r['name'] for r in updated_project.targets['augment']['installed_rules']]
+        assert 'cmd1' in [c['name'] for c in updated_project.targets['augment']['installed_commands']]
+
+        # Verify rsync was called for the new files
+        rsync_calls = [c for c in mock_run.call_args_list if c[0][0][0] == 'rsync']
+        assert len(rsync_calls) > 0
+
