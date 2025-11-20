@@ -453,3 +453,95 @@ description: Test rule
             manager.configure_project_targets('nonexistent', ['augment'])
 
 
+class TestStatusMissingFiles:
+    """Test cases for status command detecting missing installed files."""
+
+    def test_status_detects_missing_symlink(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that 'warden status' detects missing symlinks (not just 'warden project <name>')."""
+        # Create test rules
+        rules_dir = manager.config.base_path / "rules"
+        rules_dir.mkdir(exist_ok=True)
+        test_rule = rules_dir / "test-rule.md"
+        test_rule.write_text("""---
+description: Test rule
+---
+
+# Test Rule
+This is a test rule.
+""")
+
+        # Install project with symlink
+        project = manager.install_project(
+            sample_project_dir,
+            target='cursor',
+            use_copy=False,  # Use symlink
+            rule_names=['test-rule']
+        )
+
+        # Verify symlink was created
+        dest_path = sample_project_dir / ".cursor" / "rules" / "test-rule.md"
+        assert dest_path.exists()
+        assert dest_path.is_symlink()
+
+        # Check status - should be clean
+        all_status = manager.check_all_projects_status()
+        assert project.name not in all_status, "Project should not appear in status when everything is OK"
+
+        # Delete the symlink (simulating missing file)
+        dest_path.unlink()
+        assert not dest_path.exists()
+
+        # Check individual project status - should detect missing file
+        project_status = manager.check_project_status(project.name)
+        assert len(project_status['missing_installed']) == 1
+        assert project_status['missing_installed'][0]['name'] == 'test-rule'
+        assert project_status['missing_installed'][0]['type'] == 'rule'
+
+        # Check all projects status - should also detect missing file
+        # This is the bug: check_all_projects_status doesn't check missing_installed
+        all_status = manager.check_all_projects_status()
+        assert project.name in all_status, "Project with missing installed files should appear in status"
+        assert 'missing_installed' in all_status[project.name]
+        assert len(all_status[project.name]['missing_installed']) == 1
+
+    def test_status_detects_missing_copied_file(self, manager: WardenManager, sample_project_dir: Path):
+        """Test that 'warden status' detects missing copied files."""
+        # Create test rules
+        rules_dir = manager.config.base_path / "rules"
+        rules_dir.mkdir(exist_ok=True)
+        test_rule = rules_dir / "test-rule.md"
+        test_rule.write_text("""---
+description: Test rule
+---
+
+# Test Rule
+This is a test rule.
+""")
+
+        # Install project with copy
+        project = manager.install_project(
+            sample_project_dir,
+            target='augment',
+            use_copy=True,  # Use copy
+            rule_names=['test-rule']
+        )
+
+        # Verify file was created
+        dest_path = sample_project_dir / ".augment" / "rules" / "test-rule.md"
+        assert dest_path.exists()
+        assert not dest_path.is_symlink()
+
+        # Delete the file (simulating missing file)
+        dest_path.unlink()
+        assert not dest_path.exists()
+
+        # Check individual project status - should detect missing file
+        project_status = manager.check_project_status(project.name)
+        assert len(project_status['missing_installed']) == 1
+        assert project_status['missing_installed'][0]['name'] == 'test-rule'
+
+        # Check all projects status - should also detect missing file
+        all_status = manager.check_all_projects_status()
+        assert project.name in all_status, "Project with missing installed files should appear in status"
+
+

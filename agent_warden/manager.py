@@ -1609,7 +1609,8 @@ file = "~/.codex/warden.log"
             try:
                 status = self.check_project_status(project_name)
                 if (status['outdated_rules'] or status['outdated_commands'] or
-                    status['missing_sources'] or status['conflict_rules'] or status['conflict_commands']):
+                    status['missing_sources'] or status['missing_installed'] or
+                    status['conflict_rules'] or status['conflict_commands']):
                     all_status[project_name] = status
             except Exception as e:
                 all_status[project_name] = {'error': str(e)}
