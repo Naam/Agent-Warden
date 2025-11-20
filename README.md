@@ -690,6 +690,9 @@ warden search api-design
 ### System-wide Configuration
 
 ```bash
+# Install global configuration for Cursor
+warden global-install cursor
+
 # Install global configuration for Claude Code CLI
 warden global-install claude
 
@@ -698,6 +701,15 @@ warden global-install windsurf
 
 # Force overwrite existing global configuration
 warden global-install codex --force
+
+# Install specific rules only
+warden global-install cursor --rules git-commit coding-no-emoji
+
+# Install all rules (with confirmation prompt)
+warden global-install cursor --rules
+
+# Skip confirmation prompts
+warden global-install cursor --yes
 ```
 
 ### Project Status
@@ -757,6 +769,7 @@ The script supports multiple AI development tools with their specific configurat
 
 ### System-wide Configurations
 
+- **Cursor**: `~/.cursor/rules/` (individual rule files)
 - **Claude Code CLI**: `~/.claude/CLAUDE.md` (with rules in `~/.claude/warden-rules.md`)
 - **Windsurf**: `~/.codeium/windsurf/memories/global_rules.md`
 - **Codex**: `~/.codex/config.toml`
@@ -1052,6 +1065,7 @@ warden project update multi-tool-app --target cursor
 warden project sever multi-tool-app --target cursor
 
 # Set up global configurations
+warden global-install cursor
 warden global-install claude
 warden global-install windsurf
 warden global-install codex
