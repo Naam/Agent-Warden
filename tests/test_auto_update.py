@@ -43,8 +43,8 @@ class TestAutoUpdater:
     def test_should_check_for_updates_within_24_hours(self, auto_updater: AutoUpdater):
         """Test that update check is skipped within 24 hours."""
         auto_updater.config.config['auto_update'] = True
-        # Set last check to 1 hour ago
-        one_hour_ago = datetime.now() - timedelta(hours=1)
+        # Set last check to 1 hour ago (timezone-aware)
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         auto_updater.config.state['last_update_check'] = one_hour_ago.isoformat()
 
         assert auto_updater.should_check_for_updates() is False
@@ -52,8 +52,8 @@ class TestAutoUpdater:
     def test_should_check_for_updates_after_24_hours(self, auto_updater: AutoUpdater):
         """Test that update check is allowed after 24 hours."""
         auto_updater.config.config['auto_update'] = True
-        # Set last check to 25 hours ago
-        twenty_five_hours_ago = datetime.now() - timedelta(hours=25)
+        # Set last check to 25 hours ago (timezone-aware)
+        twenty_five_hours_ago = datetime.now(timezone.utc) - timedelta(hours=25)
         auto_updater.config.state['last_update_check'] = twenty_five_hours_ago.isoformat()
 
         assert auto_updater.should_check_for_updates() is True

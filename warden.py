@@ -52,7 +52,9 @@ class AutoUpdater:
         if last_check:
             try:
                 last_check_time = datetime.fromisoformat(last_check)
-                time_since_check = datetime.now() - last_check_time
+                # Use timezone-aware datetime for comparison
+                now = datetime.now(timezone.utc)
+                time_since_check = now - last_check_time
                 # Check once per day (24 hours)
                 if time_since_check.total_seconds() < 86400:
                     return False
