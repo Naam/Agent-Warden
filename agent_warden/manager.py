@@ -8,6 +8,7 @@ import difflib
 import os
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -1887,7 +1888,7 @@ file = "~/.codex/warden.log"
         return status
 
     def check_all_projects_status(self, include_remote: Optional[bool] = None) -> Dict[str, Dict]:
-        """Check status of all projects.
+        """Check status of all projects in parallel.
 
         Args:
             include_remote: If True, include remote projects. If False, skip remote projects.
@@ -1897,21 +1898,47 @@ file = "~/.codex/warden.log"
         if include_remote is None:
             include_remote = self.config.config.get('update_remote_projects', True)
 
-        all_status = {}
+        # Filter projects to check
+        projects_to_check = []
         for project_name in self.config.state['projects']:
             # Check if this is a remote project and should be skipped
             project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
             if not include_remote and project_state.is_remote():
                 continue
+            projects_to_check.append(project_name)
 
+        # Check projects in parallel
+        all_status = {}
+
+        def check_single_project(project_name: str) -> Tuple[str, Dict]:
+            """Check a single project and return (project_name, status)."""
             try:
                 status = self.check_project_status(project_name)
                 if (status['outdated_rules'] or status['outdated_commands'] or
                     status['missing_sources'] or status['missing_installed'] or
                     status['conflict_rules'] or status['conflict_commands']):
-                    all_status[project_name] = status
+                    return (project_name, status)
+                return (project_name, None)
             except Exception as e:
-                all_status[project_name] = {'error': str(e)}
+                return (project_name, {'error': str(e)})
+
+        # Use ThreadPoolExecutor for parallel checking
+        # Limit to 10 threads to avoid overwhelming the system
+        max_workers = min(10, len(projects_to_check)) if projects_to_check else 1
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_project = {
+                executor.submit(check_single_project, project_name): project_name
+                for project_name in projects_to_check
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_project):
+                project_name, status = future.result()
+                if status is not None:
+                    all_status[project_name] = status
+
         return all_status
 
     def show_diff(self, project_name: str, item_name: str, target: Optional[str] = None) -> str:
