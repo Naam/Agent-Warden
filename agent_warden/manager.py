@@ -594,6 +594,10 @@ class WardenManager:
             # Install all available commands
             command_names = self._get_available_commands()
 
+        # If rule_names is None, install all available rules by default
+        if rule_names is None:
+            rule_names = self._get_available_rules()
+
         # Check if project location already exists
         existing_project_name = None
         for existing_name, existing_data in self.config.state['projects'].items():
