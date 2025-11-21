@@ -859,15 +859,15 @@ class WardenManager:
             projects.append(ProjectState.from_dict(project_data))
         return projects
 
-    def remove_project(self, project_name: str, skip_confirm: bool = False) -> bool:
+    def untrack_project(self, project_name: str, skip_confirm: bool = False) -> bool:
         """Remove a project from tracking (does not delete files).
 
         Args:
-            project_name: Name of the project to remove
+            project_name: Name of the project to untrack
             skip_confirm: Skip confirmation prompt
 
         Returns:
-            True if removed, False if not found
+            True if untracked, False if not found
         """
         if project_name not in self.config.state['projects']:
             return False
@@ -875,18 +875,141 @@ class WardenManager:
         # Ask for confirmation unless skipped
         if not skip_confirm:
             project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
-            print(f"\n[WARNING] About to remove project '{project_name}' from tracking")
+            print(f"\n[WARNING] About to untrack project '{project_name}'")
             print(f"   Path: {project_state.path}")
             print(f"   Targets: {', '.join(project_state.targets.keys())}")
             print("   Note: This will NOT delete any files, only stop tracking the project")
-            response = input(f"\n   Remove '{project_name}' from tracking? [y/N]: ").strip().lower()
+            response = input(f"\n   Untrack '{project_name}'? [y/N]: ").strip().lower()
             if response not in ['y', 'yes']:
-                print(f"   Cancelled removal of '{project_name}'")
+                print(f"   Cancelled untracking of '{project_name}'")
                 return False
 
         del self.config.state['projects'][project_name]
         self.config.save_state()
         return True
+
+    def remove_from_project(self, project_name: str, rule_names: Optional[List[str]] = None,
+                           command_names: Optional[List[str]] = None, target: Optional[str] = None,
+                           skip_confirm: bool = False) -> Dict:
+        """Remove specific rules and/or commands from a project.
+
+        Args:
+            project_name: Name of the project
+            rule_names: List of rule names to remove
+            command_names: List of command names to remove
+            target: Specific target to remove from. If None, removes from all targets.
+            skip_confirm: Skip confirmation prompt
+
+        Returns:
+            Dict with removed_rules and removed_commands lists
+
+        Raises:
+            ProjectNotFoundError: If project doesn't exist
+            WardenError: If no rules or commands specified, or other errors
+        """
+        if project_name not in self.config.state['projects']:
+            raise ProjectNotFoundError(f"Project '{project_name}' not found")
+
+        if not rule_names and not command_names:
+            raise WardenError("Must specify at least one rule or command to remove")
+
+        project_state = ProjectState.from_dict(self.config.state['projects'][project_name])
+
+        # Determine which targets to remove from
+        if target:
+            if not project_state.has_target(target):
+                raise WardenError(f"Project '{project_name}' does not have target '{target}'")
+            targets_to_process = [target]
+        else:
+            targets_to_process = list(project_state.targets.keys())
+
+        # Ask for confirmation unless skipped
+        if not skip_confirm:
+            print(f"\n[WARNING] About to remove from project '{project_name}'")
+            if rule_names:
+                print(f"   Rules: {', '.join(rule_names)}")
+            if command_names:
+                print(f"   Commands: {', '.join(command_names)}")
+            print(f"   Targets: {', '.join(targets_to_process)}")
+            print("   Note: This will DELETE the files from the project")
+            response = input("\n   Remove these items? [y/N]: ").strip().lower()
+            if response not in ['y', 'yes']:
+                print("   Cancelled removal")
+                raise WardenError("Operation cancelled by user")
+
+        # Get backend for file operations
+        _, _, backend = self._validate_project_location(project_state.location_string)
+
+        removed_rules = []
+        removed_commands = []
+
+        # Process each target
+        for target_name in targets_to_process:
+            target_config = project_state.targets[target_name]
+
+            # Remove rules
+            if rule_names:
+                rules_destination = project_state.get_rules_destination_path(self.config, target_name)
+                for rule_name in rule_names:
+                    # Check if rule is installed
+                    rule_index = None
+                    for idx, r in enumerate(target_config['installed_rules']):
+                        if r.get('name') == rule_name:
+                            rule_index = idx
+                            break
+
+                    if rule_index is not None:
+                        # Delete the file
+                        rule_file = rules_destination / f"{rule_name}.md"
+                        try:
+                            backend.remove_file(str(rule_file))
+                            # Remove from state
+                            target_config['installed_rules'].pop(rule_index)
+                            if rule_name not in removed_rules:
+                                removed_rules.append(rule_name)
+                        except Exception as e:
+                            print(f"[WARNING] Failed to remove rule '{rule_name}' from target '{target_name}': {e}")
+
+                # Update has_rules flag
+                target_config['has_rules'] = bool(target_config['installed_rules'])
+
+            # Remove commands
+            if command_names:
+                commands_destination = project_state.get_commands_destination_path(self.config, target_name)
+                for command_name in command_names:
+                    # Check if command is installed
+                    command_index = None
+                    for idx, c in enumerate(target_config['installed_commands']):
+                        if c.get('name') == command_name:
+                            command_index = idx
+                            break
+
+                    if command_index is not None:
+                        # Delete the file
+                        command_file = commands_destination / f"{command_name}.md"
+                        try:
+                            backend.remove_file(str(command_file))
+                            # Remove from state
+                            target_config['installed_commands'].pop(command_index)
+                            if command_name not in removed_commands:
+                                removed_commands.append(command_name)
+                        except Exception as e:
+                            print(f"[WARNING] Failed to remove command '{command_name}' from target '{target_name}': {e}")
+
+                # Update has_commands flag
+                target_config['has_commands'] = bool(target_config['installed_commands'])
+
+        # Update timestamp
+        project_state.timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Save state
+        self.config.state['projects'][project_name] = project_state.to_dict()
+        self.config.save_state()
+
+        return {
+            'removed_rules': removed_rules,
+            'removed_commands': removed_commands
+        }
 
     def rename_project(self, old_name: str, new_name: str) -> ProjectState:
         """Rename a project in the tracking system."""

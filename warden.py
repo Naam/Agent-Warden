@@ -350,9 +350,20 @@ Examples:
                                       choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
                                       help='Sever only a specific target (default: all targets)')
 
-    # Project remove command
-    project_remove_parser = project_subparsers.add_parser('remove', help='Remove project from tracking')
-    project_remove_parser.add_argument('project_name', help='Name of the project to remove')
+    # Project remove command (for removing rules/commands)
+    project_remove_parser = project_subparsers.add_parser('remove', help='Remove rules or commands from a project')
+    project_remove_parser.add_argument('project_name', help='Name of the project')
+    project_remove_parser.add_argument('--rules', nargs='*', metavar='RULE',
+                                       help='Rules to remove from the project')
+    project_remove_parser.add_argument('--commands', nargs='*', metavar='COMMAND',
+                                       help='Commands to remove from the project')
+    project_remove_parser.add_argument('--target', metavar='TARGET',
+                                       choices=['cursor', 'augment', 'claude', 'windsurf', 'codex'],
+                                       help='Remove from specific target only (default: all targets)')
+
+    # Project untrack command (stop tracking project)
+    project_untrack_parser = project_subparsers.add_parser('untrack', help='Stop tracking a project (does not delete files)')
+    project_untrack_parser.add_argument('project_name', help='Name of the project to untrack')
 
     # Project rename command
     project_rename_parser = project_subparsers.add_parser('rename', help='Rename a project in the tracking system')
@@ -441,7 +452,7 @@ def main():
     import sys
     if len(sys.argv) >= 3 and sys.argv[1] == 'project':
         # Check if the second argument is not a known subcommand
-        known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'rename', 'configure']
+        known_subcommands = ['list', 'show', 'update', 'sever', 'remove', 'untrack', 'rename', 'configure']
         if sys.argv[2] not in known_subcommands and not sys.argv[2].startswith('-'):
             # Only insert 'show' if there's no known subcommand following
             # (e.g., 'project myproject' -> 'project show myproject')
@@ -645,8 +656,47 @@ def main():
                     return 1
 
             elif args.project_command == 'remove':
-                if manager.remove_project(args.project_name, skip_confirm=args.yes):
-                    print(f"[SUCCESS] Removed project '{args.project_name}' from tracking")
+                # Remove rules/commands from project
+                rule_names = args.rules if hasattr(args, 'rules') and args.rules is not None else None
+                command_names = args.commands if hasattr(args, 'commands') and args.commands is not None else None
+                target = args.target if hasattr(args, 'target') and args.target else None
+
+                # Require at least one of --rules or --commands
+                if rule_names is None and command_names is None:
+                    print("[ERROR] Must specify --rules or --commands to remove")
+                    print("Usage: warden project remove <project> --rules <rule1> <rule2> ...")
+                    print("       warden project remove <project> --commands <cmd1> <cmd2> ...")
+                    print("\nTo stop tracking a project, use: warden project untrack <project>")
+                    return 1
+
+                try:
+                    result = manager.remove_from_project(
+                        args.project_name,
+                        rule_names=rule_names,
+                        command_names=command_names,
+                        target=target,
+                        skip_confirm=args.yes
+                    )
+
+                    print(f"[SUCCESS] Removed from project '{args.project_name}'")
+                    if result.get('removed_rules'):
+                        print(f"   Removed Rules: {', '.join(result['removed_rules'])}")
+                    if result.get('removed_commands'):
+                        print(f"   Removed Commands: {', '.join(result['removed_commands'])}")
+                    if target:
+                        print(f"   Target: {target}")
+                    else:
+                        print("   Targets: all")
+
+                except (ProjectNotFoundError, WardenError) as e:
+                    print(f"[ERROR] {e}")
+                    return 1
+
+            elif args.project_command == 'untrack':
+                # Untrack project (stop tracking, don't delete files)
+                if manager.untrack_project(args.project_name, skip_confirm=args.yes):
+                    print(f"[SUCCESS] Untracked project '{args.project_name}'")
+                    print("   Note: Project files were not deleted, only removed from tracking")
                 else:
                     print(f"[ERROR] Project '{args.project_name}' not found")
                     return 1

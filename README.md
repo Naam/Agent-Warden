@@ -178,8 +178,11 @@ warden status my-remote-project
 # Add more rules to remote project
 warden install --project my-remote-project --rules new-rule
 
-# Remove remote project from tracking
-warden project remove my-remote-project
+# Remove specific rules from remote project
+warden project remove my-remote-project --rules old-rule
+
+# Stop tracking remote project (doesn't delete files on remote)
+warden project untrack my-remote-project
 ```
 
 ### Requirements
@@ -599,8 +602,13 @@ warden project update my-project --force
 # Rename a project
 warden project rename old-name new-name
 
-# Remove a project from tracking
-warden project remove my-project
+# Remove specific rules or commands from a project
+warden project remove my-project --rules coding-no-emoji git-commit
+warden project remove my-project --commands code-review
+warden project remove my-project --rules coding-no-emoji --target cursor  # Remove from specific target only
+
+# Stop tracking a project (doesn't delete files)
+warden project untrack my-project
 
 # Convert symlinks to copies for project-specific modifications
 warden project sever my-project
