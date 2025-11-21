@@ -19,15 +19,23 @@ class TestMainCommandRouting:
 
     @patch('warden.WardenManager')
     @patch('warden.AutoUpdater')
-    def test_no_command_shows_help(self, mock_updater, mock_manager):
-        """Test that running with no command shows help."""
+    def test_no_command_shows_status(self, mock_updater, mock_manager):
+        """Test that running with no command shows status (default behavior)."""
         mock_updater_instance = MagicMock()
         mock_updater_instance.should_check_for_updates.return_value = False
         mock_updater.return_value = mock_updater_instance
 
+        mock_manager_instance = MagicMock()
+        mock_manager_instance.check_all_projects_status.return_value = {}
+        mock_manager_instance.config.config.get.return_value = True
+        mock_manager.return_value = mock_manager_instance
+
         with patch('sys.argv', ['warden']):
             result = main()
-            assert result == 1
+            # Should run status command successfully
+            assert result is None or result == 0
+            # Verify check_all_projects_status was called
+            mock_manager_instance.check_all_projects_status.assert_called_once()
 
     @patch('warden.WardenManager')
     @patch('warden.AutoUpdater')

@@ -236,6 +236,10 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Check status (default command)
+  %(prog)s                     # Check all projects
+  %(prog)s my-project          # Check specific project
+
   # Install rules to ALL registered projects
   %(prog)s install --rules coding-no-emoji git-commit
   %(prog)s install --commands code-review test-gen
@@ -299,6 +303,10 @@ Examples:
     # Global flags
     parser.add_argument('--yes', '-y', action='store_true',
                        help='Skip all confirmation prompts and use default answers')
+
+    # Hidden argument for status project interception
+    parser.add_argument('--status-project', dest='status_project',
+                       help=argparse.SUPPRESS)
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
@@ -432,10 +440,6 @@ Examples:
     search_parser = subparsers.add_parser('search', help='Search for rules and commands')
     search_parser.add_argument('query', help='Search query')
 
-    # Status command
-    status_parser = subparsers.add_parser('status', help='Check for outdated rules and commands')
-    status_parser.add_argument('project_name', nargs='?', help='Project name (optional, checks all if not specified)')
-
     # Diff command
     diff_parser = subparsers.add_parser('diff', help='Show differences between installed and current versions')
     diff_parser.add_argument('project_name', help='Project name')
@@ -461,11 +465,30 @@ def main():
                 # Insert 'show' before the project name
                 sys.argv.insert(2, 'show')
 
+    # Intercept 'warden <project_name>' to show status for that project
+    # Check if there's exactly one argument and it's not a known command
+    if len(sys.argv) == 2 and not sys.argv[1].startswith('-'):
+        known_commands = ['install', 'project', 'list-commands', 'global-install', 'config',
+                         'add-package', 'update-package', 'remove-package', 'list-packages',
+                         'check-updates', 'search', 'diff']
+        if sys.argv[1] not in known_commands:
+            # Assume it's a project name for status check
+            project_name_arg = sys.argv[1]
+            sys.argv[1] = '--status-project'
+            sys.argv.append(project_name_arg)
+
     args = parser.parse_args()
 
+    # If no command provided, default to status
     if not args.command:
-        parser.print_help()
-        return 1
+        # Check if --status-project was set (from interception above)
+        if hasattr(args, 'status_project') and args.status_project:
+            args.command = 'status'
+            args.project_name = args.status_project
+        else:
+            # No project specified, check all
+            args.command = 'status'
+            args.project_name = None
 
     # Track if we should perform update at exit
     update_info = None
@@ -1157,7 +1180,7 @@ def main():
                             print(f"   {missing_count} missing source(s)")
                         print()
 
-                    print(colored_status('TIP', "Use 'warden status <project>' for details"))
+                    print(colored_status('TIP', "Use 'warden <project>' for details"))
 
         elif args.command == 'diff':
             try:
@@ -1188,7 +1211,7 @@ def main():
                 status = "enabled" if new_value else "disabled"
                 print(f"[SUCCESS] Remote project updates {status}")
                 if not new_value:
-                    print("[INFO] Remote projects will be skipped in 'warden project update' and 'warden status' commands")
+                    print("[INFO] Remote projects will be skipped in 'warden project update' and 'warden' (status) commands")
                     print("[INFO] You can still update individual remote projects with 'warden project update <project-name>'")
             elif args.auto_update:
                 # Set auto_update setting
