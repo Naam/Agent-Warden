@@ -739,7 +739,7 @@ def main():
                     project = manager.rename_project(args.old_name, args.new_name)
                     print(f"[SUCCESS] Successfully renamed project '{args.old_name}' to '{args.new_name}'")
                     print(f"   Path: {project.path}")
-                    print(f"   Target: {project.target}")
+                    print(f"   Targets: {', '.join(project.targets.keys())}")
                 except (ProjectNotFoundError, ProjectAlreadyExistsError, WardenError) as e:
                     print(f"[ERROR] {e}")
                     return 1
