@@ -103,7 +103,11 @@ class WardenManager:
             backend: The backend instance
         """
         # Extract the last component of the path
-        return Path(project_path).name
+        # Resolve the path first to handle relative paths like "."
+        path = Path(project_path)
+        if isinstance(backend, LocalBackend):
+            path = path.resolve()
+        return path.name
 
     def _find_project_case_insensitive(self, project_name: str) -> Optional[str]:
         """Find a project by name using case-insensitive matching.
