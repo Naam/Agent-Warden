@@ -591,6 +591,113 @@ class WardenManager:
         except OSError as e:
             raise FileOperationError(f"Failed to convert symlink to copy: {e}") from e
 
+    def _batch_install_items(self, item_names: List[str], destination_dir: str,
+                            backend: FileSystemBackend, use_copy: bool, target: str,
+                            is_command: bool) -> List[Dict]:
+        """Install multiple items in batch for better performance.
+
+        Args:
+            item_names: List of item names to install
+            destination_dir: Destination directory path
+            backend: Backend to use for installation
+            use_copy: Whether to use copy mode
+            target: Target assistant
+            is_command: True if installing commands, False if installing rules
+
+        Returns:
+            List of installation info dicts with checksums
+        """
+        if not item_names:
+            return []
+
+        # Ensure destination directory exists
+        backend.mkdir(destination_dir, parents=True, exist_ok=True)
+
+        # Prepare all items: resolve paths, process content, calculate checksums
+        items_to_install = []
+        install_infos = []
+
+        for item_spec in item_names:
+            try:
+                source_path, source_type = self._resolve_command_path(item_spec)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(f"Item '{item_spec}' not found: {e}") from e
+
+            if ':' in item_spec:
+                _, item_name = item_spec.split(':', 1)
+            else:
+                item_name = item_spec
+
+            # Determine file extension
+            if is_command:
+                file_extension = '.md'
+            else:
+                file_extension = self.config.get_target_rule_extension(target) if target else '.md'
+
+            dest_filename = f"{item_name}{file_extension}"
+            dest_path = f"{destination_dir.rstrip('/')}/{dest_filename}"
+
+            # Check if we need to process the file content
+            should_process = (
+                target is not None and
+                source_path.suffix == '.md' and
+                (isinstance(backend, RemoteBackend) or use_copy)
+            )
+
+            if should_process:
+                # Read and process content
+                content = source_path.read_text()
+
+                if is_command:
+                    # For commands: process template variables
+                    rules_dir = self.config.get_target_rules_path(target)
+                    processed_content = process_command_template(content, target, rules_dir)
+                else:
+                    # For rules: convert format for target
+                    processed_content = convert_rule_format(content, target)
+
+                # Write to temp file for batch transfer
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=file_extension)
+                tmp.write(processed_content)
+                tmp.close()
+
+                items_to_install.append((tmp.name, dest_path, tmp.name))  # (source, dest, temp_to_cleanup)
+
+                # Calculate checksum from processed content
+                checksum = calculate_content_checksum(processed_content)
+            else:
+                # No processing needed
+                items_to_install.append((str(source_path), dest_path, None))
+                checksum = calculate_file_checksum(source_path)
+
+            # Store installation info
+            install_infos.append({
+                "name": item_spec,
+                "checksum": checksum,
+                "source": str(source_path),
+                "source_type": source_type,
+                "installed_at": datetime.now(timezone.utc).isoformat()
+            })
+
+        # Batch transfer all files
+        try:
+            if use_copy or isinstance(backend, RemoteBackend):
+                # Use batch copy for better performance
+                file_pairs = [(src, dest) for src, dest, _ in items_to_install]
+                backend.copy_files_batch(file_pairs)
+            else:
+                # Symlink mode (local only)
+                for src, dest, _ in items_to_install:
+                    backend.create_symlink(src, dest)
+        finally:
+            # Clean up temp files
+            for _, _, temp_file in items_to_install:
+                if temp_file:
+                    Path(temp_file).unlink()
+
+        return install_infos
+
     def install_project(self, project_path: Union[str, Path], target: Optional[str] = None,
                        use_copy: bool = False,
                        install_commands: bool = False, command_names: Optional[List[str]] = None,
@@ -669,9 +776,10 @@ class WardenManager:
                 # For local: use absolute path; for remote: use path relative to remote base
                 rules_dest_str = str(rules_destination)
 
-                for rule_name in rule_names:
-                    install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy, target)
-                    installed_rules_list.append(install_info)
+                # Batch install rules for better performance
+                installed_rules_list = self._batch_install_items(
+                    rule_names, rules_dest_str, backend, use_copy, target, is_command=False
+                )
 
             # Install commands if requested
             if install_commands and command_names:
@@ -679,9 +787,10 @@ class WardenManager:
                 # For local: use absolute path; for remote: use path relative to remote base
                 commands_dest_str = str(commands_destination)
 
-                for command_name in command_names:
-                    install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy, target)
-                    installed_commands_list.append(install_info)
+                # Batch install commands for better performance
+                installed_commands_list = self._batch_install_items(
+                    command_names, commands_dest_str, backend, use_copy, target, is_command=True
+                )
 
             project_state.add_target(
                 target=target,
@@ -727,9 +836,10 @@ class WardenManager:
             # For local: use absolute path; for remote: use path relative to remote base
             rules_dest_str = str(rules_destination)
 
-            for rule_name in rule_names:
-                install_info = self._install_command_with_backend(rule_name, rules_dest_str, backend, use_copy, target)
-                installed_rules_list.append(install_info)
+            # Batch install rules for better performance
+            installed_rules_list = self._batch_install_items(
+                rule_names, rules_dest_str, backend, use_copy, target, is_command=False
+            )
 
         # Install commands if requested
         if install_commands and command_names:
@@ -737,9 +847,10 @@ class WardenManager:
             # For local: use absolute path; for remote: use path relative to remote base
             commands_dest_str = str(commands_destination)
 
-            for command_name in command_names:
-                install_info = self._install_command_with_backend(command_name, commands_dest_str, backend, use_copy, target)
-                installed_commands_list.append(install_info)
+            # Batch install commands for better performance
+            installed_commands_list = self._batch_install_items(
+                command_names, commands_dest_str, backend, use_copy, target, is_command=True
+            )
 
         # Add the target
         project_state.add_target(
