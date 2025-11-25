@@ -1812,6 +1812,8 @@ file = "~/.codex/warden.log"
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
         project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
+        backend = project_state.backend  # Get backend for file operations
+
         status = {
             'outdated_rules': [],
             'outdated_commands': [],
@@ -1850,8 +1852,8 @@ file = "~/.codex/warden.log"
                     })
                     continue
 
-                # Check if installed file exists
-                if not dest_path.exists():
+                # Check if installed file exists (backend-aware)
+                if not backend.exists(str(dest_path)):
                     status['missing_installed'].append({
                         'name': rule_info['name'],
                         'type': 'rule',
@@ -1863,7 +1865,7 @@ file = "~/.codex/warden.log"
                 # Three-way comparison
                 stored_checksum = rule_info['checksum']  # What we think is installed
                 source_checksum = calculate_file_checksum(source_path)  # Current source
-                installed_checksum = calculate_file_checksum(dest_path)  # What's actually installed
+                installed_checksum = backend.checksum(str(dest_path))  # What's actually installed (backend-aware)
 
                 source_changed = source_checksum != stored_checksum
                 user_modified = installed_checksum != stored_checksum
@@ -1921,8 +1923,8 @@ file = "~/.codex/warden.log"
                     })
                     continue
 
-                # Check if installed file exists
-                if not dest_path.exists():
+                # Check if installed file exists (backend-aware)
+                if not backend.exists(str(dest_path)):
                     status['missing_installed'].append({
                         'name': cmd_info['name'],
                         'type': 'command',
@@ -1945,7 +1947,7 @@ file = "~/.codex/warden.log"
                 else:
                     source_checksum = calculate_file_checksum(source_path)
 
-                installed_checksum = calculate_file_checksum(dest_path)
+                installed_checksum = backend.checksum(str(dest_path))  # Backend-aware
 
                 source_changed = source_checksum != stored_checksum
                 user_modified = installed_checksum != stored_checksum
@@ -2145,6 +2147,7 @@ file = "~/.codex/warden.log"
             raise ProjectNotFoundError(f"Project '{project_name}' not found")
 
         project_state = ProjectState.from_dict(self.config.state['projects'][actual_name])
+        backend = project_state.backend  # Get backend for file operations
         updated = {'rules': [], 'commands': [], 'errors': [], 'skipped': []}
 
         # Get project status to identify conflicts
@@ -2250,8 +2253,8 @@ file = "~/.codex/warden.log"
                         updated['errors'].append(f"Source file not found for '{rule_name}' in target '{target_name}': {source_path}")
                         continue
 
-                    # Copy the updated file
-                    shutil.copy2(source_path, dest_path)
+                    # Copy the updated file (backend-aware)
+                    backend.copy_file(str(source_path), str(dest_path))
 
                     # Update checksum
                     new_checksum = calculate_file_checksum(source_path)
@@ -2299,16 +2302,26 @@ file = "~/.codex/warden.log"
                     # Check if we need to process template (for commands in copy mode)
                     use_copy = target_config.get('install_type') == 'copy'
                     if use_copy:
-                        # Process template and write processed content
+                        # Process template and write to temp file, then copy
                         content = source_path.read_text()
                         rules_dir = self.config.get_target_rules_path(target_name)
                         processed_content = process_command_template(content, target_name, rules_dir)
-                        dest_path.write_text(processed_content)
+
+                        # Write to temp file then copy (backend-aware)
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as tmp:
+                            tmp.write(processed_content)
+                            tmp_path = tmp.name
+                        try:
+                            backend.copy_file(tmp_path, str(dest_path))
+                        finally:
+                            Path(tmp_path).unlink()
+
                         # Calculate checksum from processed content
                         new_checksum = calculate_content_checksum(processed_content)
                     else:
-                        # For symlinks, just copy the file
-                        shutil.copy2(source_path, dest_path)
+                        # For symlinks, just copy the file (backend-aware)
+                        backend.copy_file(str(source_path), str(dest_path))
                         new_checksum = calculate_file_checksum(source_path)
 
                     # Update checksum
