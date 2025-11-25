@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 class BackendError(Exception):
@@ -73,6 +73,25 @@ class FileSystemBackend(ABC):
     @abstractmethod
     def checksum(self, path: str) -> str:
         """Calculate SHA256 checksum of file."""
+        pass
+
+    @abstractmethod
+    def copy_files_batch(self, file_pairs: List[Tuple[str, str]], create_dirs: bool = True) -> None:
+        """Copy multiple files in batch (single operation when possible).
+
+        Args:
+            file_pairs: List of (source_path, dest_path) tuples
+            create_dirs: If True, create destination directories before transfer
+
+        Raises:
+            BackendError: If transfer fails
+
+        Example:
+            backend.copy_files_batch([
+                ('/local/rule1.md', '.augment/rules/rule1.md'),
+                ('/local/rule2.md', '.augment/rules/rule2.md'),
+            ])
+        """
         pass
 
     @abstractmethod
@@ -148,6 +167,21 @@ class LocalBackend(FileSystemBackend):
             for byte_block in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
+
+    def copy_files_batch(self, file_pairs: List[Tuple[str, str]], create_dirs: bool = True) -> None:
+        """Copy multiple files locally.
+
+        For local backend, this is just a convenience wrapper that calls copy_file
+        for each pair. No performance benefit over individual copies.
+        """
+        if not file_pairs:
+            return
+
+        for source, dest in file_pairs:
+            if create_dirs:
+                dest_path = self._resolve_path(dest)
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+            self.copy_file(source, dest)
 
     def supports_symlinks(self) -> bool:
         """Return whether this backend supports symlinks."""
@@ -341,6 +375,74 @@ class RemoteBackend(FileSystemBackend):
 
         # Extract checksum from output (first field)
         return stdout.split()[0]
+
+    def copy_files_batch(self, file_pairs: List[Tuple[str, str]], create_dirs: bool = True) -> None:
+        """Copy multiple files to remote in a single SSH session.
+
+        This method optimizes file transfer by:
+        1. Creating all destination directories in one SSH call
+        2. Transferring files grouped by destination directory
+        3. Minimizing SSH connection overhead
+
+        Args:
+            file_pairs: List of (source_local_path, dest_remote_path) tuples
+            create_dirs: If True, create destination directories before transfer
+
+        Raises:
+            RemoteOperationError: If transfer fails
+        """
+        if not file_pairs:
+            return
+
+        # Step 1: Collect all unique destination directories
+        dest_dirs = set()
+        for _, dest in file_pairs:
+            dest_remote = self._resolve_remote_path(dest)
+            dest_dir = os.path.dirname(dest_remote)
+            if dest_dir:
+                dest_dirs.add(dest_dir)
+
+        # Step 2: Create all directories in one SSH call
+        if create_dirs and dest_dirs:
+            # Build single mkdir command for all directories
+            quoted_dirs = ' '.join(self._quote_remote_path(d) for d in dest_dirs)
+            self._run_ssh_command(f"mkdir -p {quoted_dirs}")
+
+        # Step 3: Group files by destination directory for efficient transfer
+        by_dest_dir = {}
+        for source, dest in file_pairs:
+            dest_remote = self._resolve_remote_path(dest)
+            dest_dir = os.path.dirname(dest_remote) or '.'
+            if dest_dir not in by_dest_dir:
+                by_dest_dir[dest_dir] = []
+            by_dest_dir[dest_dir].append((source, os.path.basename(dest_remote)))
+
+        # Step 4: Transfer each group in a single command
+        for dest_dir, files in by_dest_dir.items():
+            sources = [src for src, _ in files]
+            remote_dest = self._get_remote_location(dest_dir + '/')
+
+            if self.transfer_tool == 'rsync':
+                # rsync can handle multiple source files
+                cmd = ['rsync', '-az', '--checksum'] + sources + [remote_dest]
+            else:  # scp
+                # scp can also handle multiple source files
+                cmd = ['scp', '-q'] + sources + [remote_dest]
+
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if result.returncode != 0:
+                    raise RemoteOperationError(
+                        f"Batch file transfer failed to {dest_dir}: {result.stderr}"
+                    )
+            except subprocess.TimeoutExpired:
+                raise RemoteOperationError(
+                    f"Batch file transfer to {self.ssh_target} timed out"
+                ) from None
+            except FileNotFoundError:
+                raise BackendError(
+                    f"{self.transfer_tool} not found. Please install it."
+                ) from None
 
     def supports_symlinks(self) -> bool:
         """Remote backend does not support symlinks."""

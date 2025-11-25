@@ -159,6 +159,60 @@ class TestLocalBackend:
         backend = LocalBackend(str(tmp_path))
         assert backend.get_location_string() == str(tmp_path)
 
+    def test_copy_files_batch_empty(self, tmp_path):
+        """Test copy_files_batch with empty list."""
+        backend = LocalBackend(str(tmp_path))
+        # Should not raise any errors
+        backend.copy_files_batch([])
+
+    def test_copy_files_batch_single_file(self, tmp_path):
+        """Test copy_files_batch with single file."""
+        source = tmp_path / "source.txt"
+        source.write_text("test content")
+
+        backend = LocalBackend(str(tmp_path))
+        backend.copy_files_batch([
+            (str(source), "dest.txt")
+        ])
+
+        dest = tmp_path / "dest.txt"
+        assert dest.exists()
+        assert dest.read_text() == "test content"
+
+    def test_copy_files_batch_multiple_files(self, tmp_path):
+        """Test copy_files_batch with multiple files."""
+        source1 = tmp_path / "source1.txt"
+        source1.write_text("content 1")
+        source2 = tmp_path / "source2.txt"
+        source2.write_text("content 2")
+        source3 = tmp_path / "source3.txt"
+        source3.write_text("content 3")
+
+        backend = LocalBackend(str(tmp_path))
+        backend.copy_files_batch([
+            (str(source1), "dest1.txt"),
+            (str(source2), "subdir/dest2.txt"),
+            (str(source3), "subdir/dest3.txt"),
+        ])
+
+        assert (tmp_path / "dest1.txt").read_text() == "content 1"
+        assert (tmp_path / "subdir" / "dest2.txt").read_text() == "content 2"
+        assert (tmp_path / "subdir" / "dest3.txt").read_text() == "content 3"
+
+    def test_copy_files_batch_creates_dirs(self, tmp_path):
+        """Test copy_files_batch creates destination directories."""
+        source = tmp_path / "source.txt"
+        source.write_text("test content")
+
+        backend = LocalBackend(str(tmp_path))
+        backend.copy_files_batch([
+            (str(source), "deep/nested/dir/dest.txt")
+        ], create_dirs=True)
+
+        dest = tmp_path / "deep" / "nested" / "dir" / "dest.txt"
+        assert dest.exists()
+        assert dest.read_text() == "test content"
+
 
 class TestRemoteBackend:
     """Tests for RemoteBackend."""
@@ -369,6 +423,118 @@ class TestRemoteBackend:
         """Test location string representation."""
         backend = RemoteBackend(host="server.com", user="testuser", path="/remote/path")
         assert backend.get_location_string() == "testuser@server.com:/remote/path"
+
+    @patch('subprocess.run')
+    def test_copy_files_batch_empty(self, mock_run):
+        """Test copy_files_batch with empty list."""
+        backend = RemoteBackend(host="server.com", path="/remote")
+        # Should not raise any errors and not make any calls
+        backend.copy_files_batch([])
+        assert mock_run.call_count == 0
+
+    @patch('subprocess.run')
+    def test_copy_files_batch_single_file_rsync(self, mock_run):
+        """Test copy_files_batch with single file using rsync."""
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        with patch('shutil.which', return_value='/usr/bin/rsync'):
+            backend = RemoteBackend(host="server.com", user="testuser", path="/remote")
+            backend.copy_files_batch([
+                ("/local/file1.txt", "dest1.txt")
+            ])
+
+        # Should have 2 calls: mkdir and rsync
+        assert mock_run.call_count == 2
+
+        # Check mkdir call
+        mkdir_call = mock_run.call_args_list[0][0][0]
+        assert mkdir_call[0] == 'ssh'
+        assert 'mkdir -p' in mkdir_call[2]
+
+        # Check rsync call
+        rsync_call = mock_run.call_args_list[1][0][0]
+        assert rsync_call[0] == 'rsync'
+        assert '/local/file1.txt' in rsync_call
+        assert 'testuser@server.com:/remote/' in rsync_call[-1]
+
+    @patch('subprocess.run')
+    def test_copy_files_batch_multiple_files_same_dir(self, mock_run):
+        """Test copy_files_batch with multiple files to same directory."""
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        with patch('shutil.which', return_value='/usr/bin/rsync'):
+            backend = RemoteBackend(host="server.com", path="/remote")
+            backend.copy_files_batch([
+                ("/local/file1.txt", "rules/file1.txt"),
+                ("/local/file2.txt", "rules/file2.txt"),
+                ("/local/file3.txt", "rules/file3.txt"),
+            ])
+
+        # Should have 2 calls: mkdir and rsync (all files in one rsync call)
+        assert mock_run.call_count == 2
+
+        # Check rsync call has all 3 files
+        rsync_call = mock_run.call_args_list[1][0][0]
+        assert rsync_call[0] == 'rsync'
+        assert '/local/file1.txt' in rsync_call
+        assert '/local/file2.txt' in rsync_call
+        assert '/local/file3.txt' in rsync_call
+
+    @patch('subprocess.run')
+    def test_copy_files_batch_multiple_dirs(self, mock_run):
+        """Test copy_files_batch with files to different directories."""
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        with patch('shutil.which', return_value='/usr/bin/rsync'):
+            backend = RemoteBackend(host="server.com", path="/remote")
+            backend.copy_files_batch([
+                ("/local/rule1.txt", "rules/rule1.txt"),
+                ("/local/rule2.txt", "rules/rule2.txt"),
+                ("/local/cmd1.txt", "commands/cmd1.txt"),
+            ])
+
+        # Should have 3 calls: mkdir (for both dirs), rsync (rules), rsync (commands)
+        assert mock_run.call_count == 3
+
+        # Check mkdir call creates both directories
+        mkdir_call = mock_run.call_args_list[0][0][0]
+        assert 'mkdir -p' in mkdir_call[2]
+        # Should contain both directory paths
+        assert 'rules' in mkdir_call[2] or 'commands' in mkdir_call[2]
+
+    @patch('subprocess.run')
+    def test_copy_files_batch_with_scp(self, mock_run):
+        """Test copy_files_batch using scp when rsync not available."""
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        with patch('shutil.which', return_value=None):  # No rsync
+            backend = RemoteBackend(host="server.com", path="/remote")
+            backend.copy_files_batch([
+                ("/local/file1.txt", "dest/file1.txt"),
+                ("/local/file2.txt", "dest/file2.txt"),
+            ])
+
+        # Should use scp instead of rsync
+        scp_call = mock_run.call_args_list[1][0][0]
+        assert scp_call[0] == 'scp'
+        assert '/local/file1.txt' in scp_call
+        assert '/local/file2.txt' in scp_call
+
+    @patch('subprocess.run')
+    def test_copy_files_batch_no_create_dirs(self, mock_run):
+        """Test copy_files_batch with create_dirs=False."""
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        with patch('shutil.which', return_value='/usr/bin/rsync'):
+            backend = RemoteBackend(host="server.com", path="/remote")
+            backend.copy_files_batch([
+                ("/local/file1.txt", "dest/file1.txt")
+            ], create_dirs=False)
+
+        # Should only have rsync call, no mkdir
+        assert mock_run.call_count == 1
+        rsync_call = mock_run.call_args_list[0][0][0]
+        assert rsync_call[0] == 'rsync'
 
 
 class TestParseLocation:
